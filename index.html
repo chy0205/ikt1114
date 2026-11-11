@@ -56,8 +56,12 @@ function updateProgress(){
   const type=typeField.value,country=el('country')?.value,unit=el('unit')?.value,district=el('district')?.value;
   const located=!!(type&&country&&unit&&district);
   const stage=!type?0:!located?1:2;
-  const percent=[0,34,67][stage];
-  el('stepName').textContent=['步驟 1／3：選擇回報類別','步驟 2／3：選擇國家、單位與區域','步驟 3／3：填寫成績與驗證資料'][stage];
+  const detailKeys=type&&TYPES[type]?TYPES[type].filter(k=>!['country','unit','district'].includes(k)):[];
+  const completed=stage===2&&detailKeys.every(k=>{
+    const node=el(k);return node&&(k==='files'?node.files.length>0:!!String(node.value||'').trim());
+  });
+  const percent=completed?100:[0,34,67][stage];
+  el('stepName').textContent=completed?'資料填寫完成，可確認送出':['步驟 1／3：選擇回報類別','步驟 2／3：選擇國家、單位與區域','步驟 3／3：填寫成績與驗證資料'][stage];
   el('stepPercent').textContent=percent+'%';
   el('progressBar').style.width=percent+'%';
 }
@@ -147,6 +151,8 @@ function renderType(){
   const spec=TYPES[el('type').value];
   if(!spec){submitButton.classList.add('hidden');return;}
   for(const key of spec)target.append(field(key));
+  target.addEventListener('input',updateProgress,{once:false});
+  target.addEventListener('change',updateProgress,{once:false});
   el('country').addEventListener('change',onCountryChange);
   el('unit').addEventListener('change',onUnitChange);
   if(el('district'))el('district').addEventListener('change',showSteps);
