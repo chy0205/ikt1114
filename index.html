@@ -142,7 +142,8 @@ function onUnitChange(){
   showSteps();
 }
 function renderType(){
-  const target=el('dynamic');target.replaceChildren();el('status').textContent='';\n  el('typeHelp').textContent=TYPE_HELP[typeField.value]||'選擇回報類別後，會依序顯示需要填寫的資料。';
+  const target=el('dynamic');target.replaceChildren();el('status').textContent='';
+  el('typeHelp').textContent=TYPE_HELP[typeField.value]||'選擇回報類別後，會依序顯示需要填寫的資料。';
   const spec=TYPES[el('type').value];
   if(!spec){submitButton.classList.add('hidden');return;}
   for(const key of spec)target.append(field(key));
@@ -201,5 +202,6 @@ form.addEventListener('submit',async e=>{
   }finally{btn.disabled=false;btn.textContent='檢查資料並送出';}
 });
 if(!API_URL.startsWith('https://')){el('status').className='status error';el('status').textContent='尚未設定 Apps Script 網址。';}
-else loadOptions();\nupdateProgress();
+else loadOptions();
+updateProgress();
 </script></body></html>
