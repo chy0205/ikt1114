@@ -12,18 +12,88 @@ const TYPES = {
   publicClass: { sheet: '公堂進階班', fields: ['country','unit','district','reporterName','temple','classType','count'], photo: true },
   temple: { sheet: '成全安堂完成', fields: ['country','unit','district','mentor','host','eventDate'], photo: true },
 };
-// 其他四類沿用 A:P 的既有共用格式；公堂兩類依表單順序使用各自欄位，不新增 Q 欄。
-const HEADERS = ['回報編號','送出時間','回報類別','國別','單位','區別','引師姓名','佛堂或公堂堂號','壇主姓名','成全者姓名','班員姓名','進階班類別','辦道／上課／安堂日期','渡眾／達標人數','上課次數','照片連結'];
-const PUBLIC_HEADERS = {
-  public: ['回報編號','送出時間','回報類別','國別','單位','區域','回報人姓名','公堂堂號','辦道日期','渡眾人數','照片連結'],
-  publicClass: ['回報編號','送出時間','回報類別','國別','單位','區域','回報人姓名','公堂堂號','進階班類別','堂數達標之班員人數','照片連結']
+// 六種成績各自使用專屬欄位；沒有出現在該類表單的欄位不建立於該工作表。
+const BASE_HEADERS = ['回報編號','送出時間','回報類別'];
+const FIELD_HEADERS = {
+  country: '國別', unit: '單位', district: '區域',
+  guide: '引師姓名', reporterName: '回報人姓名',
+  temple: '佛堂／公堂堂號', host: '壇主姓名',
+  mentor: '成全者姓名', student: '班員姓名',
+  classType: '進階班類別', eventDate: '辦道／上課／正式安堂日期',
+  count: '渡眾／達標人數', session: '上課次數'
 };
-function headersFor_(type) { return PUBLIC_HEADERS[type] || HEADERS; }
-function rowFor_(type, p, id, urls) {
-  const prefix = [id, new Date(), TYPES[type].sheet, p.country, p.unit, p.district];
-  if (type === 'public') return prefix.concat([p.reporterName,p.temple,p.eventDate,p.count,urls.join('\n')]);
-  if (type === 'publicClass') return prefix.concat([p.reporterName,p.temple,p.classType,p.count,urls.join('\n')]);
-  return [id,new Date(),TYPES[type].sheet,p.country,p.unit,p.district,p.guide,p.temple,p.host,p.mentor,p.student,p.classType,p.eventDate,p.count,p.session,urls.join('\n')];
+const TYPE_LABELS = {
+  personal: { eventDate: '辦道日期', count: '渡眾人數' },
+  family: { temple: '佛堂堂號', eventDate: '辦道日期', count: '渡眾人數' },
+  public: { temple: '公堂堂號', eventDate: '辦道日期', count: '渡眾人數' },
+  personalClass: { eventDate: '上課日期' },
+  publicClass: { temple: '公堂堂號', count: '堂數達標之班員人數' },
+  temple: { eventDate: '正式安堂日期' }
+};
+function headersFor_(type) {
+  const spec = TYPES[type], names = TYPE_LABELS[type] || {};
+  if (!spec) throw new Error('未知回報類別');
+  return BASE_HEADERS.concat(spec.fields.map(key => names[key] || FIELD_HEADERS[key]), spec.photo ? ['照片連結'] : []);
+}
+function rowFor_(type,p,id,urls) {
+  const spec=TYPES[type];
+  const row=[id,new Date(),spec.sheet];
+  spec.fields.forEach(key => {
+    if (key==='count' || key==='session') row.push(Number(p[key]));
+    else row.push(safeText_(p[key]));
+  });
+  if (spec.photo) row.push(urls.join('\n'));
+  return row;
+}
+function ensureSchema_(sh,type) {
+  const expected = headersFor_(type);
+  if (sh.getLastRow()===0) {
+    sh.getRange(1,1,1,expected.length).setValues([expected]);
+    return;
+  }
+  const existing = sh.getRange(1,1,1,Math.max(sh.getLastColumn(),expected.length)).getDisplayValues()[0];
+  const matches = expected.every((label,i)=>label===existing[i]) &&
+    existing.slice(expected.length).every(v=>v==='');
+  if (!matches) throw new Error('「'+sh.getName()+'」仍是舊版欄位格式；為保護原有成績，請先備份並執行 migrateReportSheets()，不可直接混用新舊版。');
+}
+// 先備份後轉換舊資料。此函式需由管理員於 Apps Script 手動執行，切勿在回報時自動搬移。
+// 以舊版共同欄位標題與回報類別識別各欄；不刪除原始內容，會建立隱藏的備份分頁。
+function migrateReportSheets() {
+  const ss=sheet_();
+  const legacy = {
+    '回報編號':'id','送出時間':'submitted','回報類別':'type',
+    '國別':'country','單位':'unit','區別':'district','區域':'district',
+    '引師姓名':'guide','佛堂或公堂堂號':'temple','佛堂／公堂堂號':'temple',
+    '公堂堂號':'temple','佛堂堂號':'temple','壇主姓名':'host',
+    '回報人姓名':'reporterName','成全者姓名':'mentor','班員姓名':'student',
+    '進階班類別':'classType','辦道／上課／安堂日期':'eventDate',
+    '辦道／上課／正式安堂日期':'eventDate','辦道日期':'eventDate',
+    '上課日期':'eventDate','正式安堂日期':'eventDate',
+    '渡眾／達標人數':'count','渡眾人數':'count',
+    '堂數達標之班員人數':'count','上課次數':'session','照片連結':'files'
+  };
+  Object.keys(TYPES).forEach(type => {
+    const sh=ss.getSheetByName(TYPES[type].sheet);
+    if (!sh || sh.getLastRow()===0) return;
+    const expected=headersFor_(type), width=sh.getLastColumn();
+    const rows=sh.getDataRange().getValues();
+    const heads=rows[0].map(h=>String(h).trim());
+    if (heads.length===expected.length && heads.every((v,i)=>v===expected[i])) return;
+    const mapped=heads.map(h=>legacy[h]||null);
+    const keys=['id','submitted','type'].concat(TYPES[type].fields,TYPES[type].photo?['files']:[]);
+    if (!keys.every(k=>mapped.includes(k))) {
+      throw new Error('無法辨認「'+sh.getName()+'」舊版欄位，停止轉換；請手動核對。');
+    }
+    const converted=rows.slice(1).filter(row=>row.some(x=>x!==''&&x!==null))
+      .map(row=>keys.map(key=>row[mapped.indexOf(key)]));
+    // 先建立完整備份，原始分頁內容保留在備份中。
+    const backupName=('備份_'+sh.getName()+'_'+Utilities.formatDate(new Date(),'Asia/Taipei','MMdd_HHmmss')).slice(0,99);
+    const backup=sh.copyTo(ss).setName(backupName);
+    backup.hideSheet();
+    sh.getRange(1,1,Math.max(sh.getLastRow(),converted.length+1),Math.max(width,expected.length)).clearContent();
+    sh.getRange(1,1,1,expected.length).setValues([expected]);
+    if(converted.length)sh.getRange(2,1,converted.length,expected.length).setValues(converted);
+  });
 }
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || '';
@@ -78,8 +148,8 @@ function submit_(p) {
   try {
     const ss = sheet_();
     let sh = ss.getSheetByName(spec.sheet);
-    if (!sh) { sh = ss.insertSheet(spec.sheet); sh.appendRow(headersFor_(p.type)); }
-    if (sh.getLastRow() === 0) sh.appendRow(headersFor_(p.type));
+    if (!sh) sh = ss.insertSheet(spec.sheet);
+    ensureSchema_(sh,p.type);
     const id = Utilities.getUuid();
     const folder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
     const urls = [];
@@ -90,7 +160,7 @@ function submit_(p) {
       const blob = Utilities.newBlob(bytes, f.mimeType, id + '_' + (urls.length + 1) + '.' + ext);
       urls.push(folder.createFile(blob).getUrl());
     }
-    sh.appendRow(rowFor_(p.type,p,id,urls).map(safeText_));
+    sh.appendRow(rowFor_(p.type,p,id,urls));
     return {ok:true,id};
   } finally { lock.releaseLock(); }
 }
@@ -100,9 +170,9 @@ function setupSheets() {
   if (!options) options = ss.insertSheet('選項設定');
   if (options.getLastRow() === 0) options.appendRow(['國別','單位','區別']);
   Object.keys(TYPES).forEach(type => {
-    const spec = TYPES[type];
-    let sh = ss.getSheetByName(spec.sheet);
-    if (!sh) sh = ss.insertSheet(spec.sheet);
-    if (sh.getLastRow() === 0) sh.appendRow(headersFor_(type));
+    const spec=TYPES[type];
+    let sh=ss.getSheetByName(spec.sheet);
+    if(!sh)sh=ss.insertSheet(spec.sheet);
+    ensureSchema_(sh,type);
   });
 }
