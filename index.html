@@ -1,8 +1,34 @@
 <!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>白陽慈航2027｜成績回報</title>
 <style>
-:root{font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;color:#23352e;background:#f5f7f3}*{box-sizing:border-box}body{margin:0}.wrap{max-width:760px;margin:36px auto;padding:0 16px}.hero{background:#214b3a;color:white;padding:30px;border-radius:20px 20px 0 0}.hero h1{margin:5px 0;font-size:26px}.hero p{margin:0;color:#d9e8df}.panel{background:white;border:1px solid #e0e6df;border-radius:0 0 20px 20px;padding:28px;box-shadow:0 12px 36px #203a2b0a}.field{margin-bottom:18px}label{display:block;font-weight:650;margin-bottom:8px}input,select{width:100%;font:inherit;padding:12px;border:1px solid #cbd5cd;border-radius:10px;background:white;color:#23352e}input:focus,select:focus{outline:2px solid #79a68d}button{background:#245f46;color:white;border:0;padding:14px 22px;border-radius:11px;font:inherit;font-weight:700;cursor:pointer;width:100%}button:disabled{opacity:.55;cursor:not-allowed}.hint{color:#68786e;font-size:13px;margin-top:6px}.notice{background:#f0f5ee;border-radius:10px;padding:12px;margin-bottom:20px;font-size:14px}.error{color:#a51d2d}.success{color:#176640}.hidden{display:none}.field-note{font-size:13px;color:#557a62;margin:-8px 0 18px}.step-title{font-size:14px;font-weight:700;color:#42664f;margin:22px 0 12px}#preview{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}#preview img{width:85px;height:85px;object-fit:cover;border-radius:8px}.status{margin-top:14px;white-space:pre-wrap}footer{text-align:center;color:#7c8980;font-size:12px;margin:22px}@media(max-width:520px){.wrap{margin:0;padding:0}.hero{border-radius:0}.panel{border-radius:0;padding:20px}}
-</style></head><body><main class="wrap"><header class="hero"><div>寶光崇正 · 丁未年</div><h1>2027 白陽慈航盛會</h1><p>成績回報系統</p></header><section class="panel"><div class="notice">第一梯次結算：2027/05/23 23:59<br>第二梯次結算：2027/11/07 23:59<br>請依實際資料填寫，照片將作為成績驗證依據。</div><form id="form"><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option></select></div><div id="dynamic"></div><button id="submit" type="submit">確認送出</button><div id="status" class="status" role="status" aria-live="polite"></div></form></section><footer>寶光崇正 · 2027</footer></main>
+:root{font-family:system-ui,-apple-system,"Noto Sans TC",sans-serif;color:#203c31;background:#f3f6f2;--green:#225640;--green-dark:#183f30;--border:#d8e3db;--muted:#607568}
+*{box-sizing:border-box}body{margin:0;line-height:1.6} .wrap{max-width:790px;margin:32px auto;padding:0 18px}
+.hero{background:linear-gradient(125deg,#1c4836,#2a6751);color:white;padding:34px 36px;border-radius:22px 22px 0 0;position:relative;overflow:hidden}
+.hero:after{content:"";position:absolute;width:180px;height:180px;border:1px solid #ffffff29;border-radius:100%;top:-100px;right:-45px}
+.hero h1{font-size:clamp(25px,4.5vw,34px);margin:5px 0;letter-spacing:.02em;line-height:1.35}
+.hero p{margin:0;color:#d6e7de}.eyebrow{font-size:13px;letter-spacing:.11em;color:#d8e9e1}
+.panel{background:white;border:1px solid #dde6de;border-radius:0 0 22px 22px;padding:30px 36px;box-shadow:0 12px 38px #244d3720}
+.notice{background:#f2f7f2;border:1px solid #e0ebe1;border-radius:13px;padding:15px 17px;margin-bottom:24px;font-size:14px}
+.notice strong{display:block;margin-bottom:4px}
+.progress-wrap{margin-bottom:23px}.progress-top{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin-bottom:9px}
+.progress-track{height:8px;border-radius:99px;background:#e7efe8;overflow:hidden}.progress-bar{height:100%;background:linear-gradient(90deg,#2b7254,#67a77e);width:0%;transition:width .22s ease}
+.field{margin-bottom:19px;animation:rise .18s ease-out}@keyframes rise{from{opacity:.5;transform:translateY(3px)}to{opacity:1;transform:none}}
+label{display:block;font-weight:650;margin-bottom:7px;font-size:15px}
+input,select{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px solid #cddbd0;border-radius:11px;background:#fff;color:#243e32;min-height:49px;transition:border .16s,box-shadow .16s}
+input:focus,select:focus{outline:none;border-color:#3a956d;box-shadow:0 0 0 3px #3a956d25}input[type=file]{height:auto;min-height:58px;background:#f9fbf9}
+input[type=file]::file-selector-button{border:0;background:#e2f0e6;padding:9px 11px;border-radius:7px;color:#215a40;margin-right:12px;font-weight:650;cursor:pointer}
+button{background:var(--green);color:white;border:0;padding:14px 22px;border-radius:12px;font:inherit;font-weight:700;cursor:pointer;width:100%;min-height:51px;transition:background .16s}
+button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity:.55;cursor:not-allowed}
+.hint{color:var(--muted);font-size:13px;margin-top:6px}.hidden{display:none!important}.field-note{font-size:13px;color:#557a62;margin:-8px 0 18px}
+#preview{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.preview-item{width:112px;background:#f6f9f6;border:1px solid var(--border);padding:6px;border-radius:10px;overflow:hidden}
+.preview-item img{width:100%;height:78px;object-fit:cover;border-radius:6px}.preview-item span{font-size:11px;color:#516a59;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status{margin-top:15px;white-space:pre-wrap;border-radius:10px}.status:not(:empty){padding:13px 14px;background:#f3f7f4}
+.status.error{color:#9f2032;background:#fff0f1}.status.success{color:#145c3c;background:#eef9f1}
+.section-title{margin:18px 0 16px;padding-top:13px;border-top:1px solid #edf0ed;color:#39654b;font-size:14px;font-weight:750}
+.helper{font-size:13px;color:#63756a;margin:-2px 0 16px}footer{text-align:center;color:#7c8980;font-size:12px;margin:22px}
+@media(max-width:560px){.wrap{margin:0;padding:0}.hero{border-radius:0;padding:26px 21px}.panel{border-radius:0;padding:24px 20px;border-left:none;border-right:none}.notice{padding:12px;font-size:13px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><main class="wrap"><header class="hero"><div class="eyebrow">寶光崇正 · 丁未年</div><h1>2027 白陽慈航盛會</h1><p>線上成績回報系統｜手機、電腦皆可使用</p></header><section class="panel"><div class="notice"><strong>回報前請留意</strong>第一梯次結算：2027/05/23 23:59<br>第二梯次結算：2027/11/07 23:59<br>請確認資料正確，並依回報類別上傳必要的驗證照片。</div><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option></select></div><div id="dynamic"></div><button id="submit" type="submit">檢查資料並送出</button><div id="status" class="status" role="status" aria-live="polite"></div></form></section><footer>寶光崇正 · 2027</footer></main>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbwrWACdDY07XimYM2Ul-dkIw8KeySVDnetLK4GKm7u0Dw8_-YPSY95uVO8QhhfySNh-/exec';
 const TYPES = {
@@ -13,6 +39,8 @@ const TYPES = {
   publicClass:['country','unit','district','reporterName','temple','classType','count','files'],
   temple:['country','unit','district','mentor','host','eventDate','files']
 };
+const TYPE_LABELS={personal:{eventDate:'辦道日期',count:'此次渡眾人數',files:'上傳求道卡照片'},family:{temple:'佛堂堂號',eventDate:'辦道日期',count:'渡眾人數'},public:{temple:'公堂堂號',eventDate:'辦道日期',count:'渡眾人數'},personalClass:{eventDate:'上課日期',files:'上傳上課出席表'},publicClass:{temple:'公堂堂號',count:'堂數達標之班員人數',files:'上傳上課出席表'},temple:{eventDate:'正式安堂日期',files:'上傳安堂當天照片（佛堂須入鏡）'}};
+const TYPE_HELP={personal:'每次個人渡眾回報都需要附上求道卡照片。',family:'獲獎結算時，需提供辦道簿供核實。',public:'公堂渡眾回報需填寫回報人姓名與區域；結算時提供辦道簿。',personalClass:'請依班期選擇第 1～24 次上課，並附上上課出席表。',publicClass:'請填寫達標班員人數，並上傳進階班出席表。',temple:'必須已正式完成安堂，並上傳佛堂入鏡的當天照片。'};
 const LABEL = {country:'國家',unit:'單位',district:'區域',reporterName:'回報人姓名',guide:'引師姓名',
   temple:'佛堂／公堂堂號',host:'壇主姓名',mentor:'成全者姓名',student:'班員姓名',
   eventDate:'辦道／上課／正式安堂日期',count:'渡眾／達標人數',classType:'進階班類別',
@@ -22,29 +50,49 @@ let optionsReady = false;
 const el = id => document.getElementById(id);
 const form = el('form');
 const submitButton = el('submit');
+const typeField=el('type');
+function displayLabel(key){return (TYPE_LABELS[typeField.value]||{})[key]||LABEL[key];}
+function updateProgress(){
+  const type=typeField.value,country=el('country')?.value,unit=el('unit')?.value,district=el('district')?.value;
+  const located=!!(type&&country&&unit&&district);
+  const stage=!type?0:!located?1:2;
+  const percent=[0,34,67][stage];
+  el('stepName').textContent=['步驟 1／3：選擇回報類別','步驟 2／3：選擇國家、單位與區域','步驟 3／3：填寫成績與驗證資料'][stage];
+  el('stepPercent').textContent=percent+'%';
+  el('progressBar').style.width=percent+'%';
+}
+
 submitButton.classList.add('hidden');
 function field(key) {
   const outer=document.createElement('div');outer.className='field';outer.id='wrap-'+key;
-  const label=document.createElement('label');label.htmlFor=key;label.textContent=LABEL[key]+' *';outer.append(label);
+  const label=document.createElement('label');label.htmlFor=key;label.textContent=displayLabel(key)+' *';outer.append(label);
   let input;
   if(['country','unit','district','classType','session'].includes(key)) {
-    input=document.createElement('select');input.add(new Option('請選擇'+LABEL[key],''));
+    input=document.createElement('select');input.add(new Option('請選擇'+displayLabel(key),''));
     if(key==='classType')['禮行','義理','仁德'].forEach(x=>input.add(new Option(x,x)));
     if(key==='session')for(let i=1;i<=24;i++)input.add(new Option('第'+i+'次',i));
   } else {
     input=document.createElement('input');input.type=key==='eventDate'?'date':key==='count'?'number':key==='files'?'file':'text';
-    if(key==='count')input.min='0';
+    if(key==='count'){input.min='0';input.step='1';input.inputMode='numeric';}\n    if(['guide','reporterName','host','mentor','student','temple'].includes(key)){input.maxLength=120;input.autocomplete='off';}
     if(key==='files'){input.accept='image/jpeg,image/png,image/webp,image/heic,image/heif';input.multiple=true;}
   }
   input.id=key;input.name=key;input.required=true;outer.append(input);
   if(key==='files') {
     const hint=document.createElement('div');hint.className='hint';
-    hint.textContent='請上傳清楚可辨識的驗證照片，避免上傳無關個資。';outer.append(hint);
+    hint.textContent='最多 5 張，每張不超過 5MB；請確認照片清晰並避免拍到無關資料。';outer.append(hint);
     const preview=document.createElement('div');preview.id='preview';outer.append(preview);
-    input.addEventListener('change',()=>{preview.replaceChildren();for(const file of input.files) {
-      if(file.type.startsWith('image/')){const img=document.createElement('img');img.src=URL.createObjectURL(file);
-        img.onload=()=>URL.revokeObjectURL(img.src);preview.append(img);}
-    }});
+    input.addEventListener('change',()=>{
+      preview.replaceChildren();const files=[...input.files],total=files.reduce((a,f)=>a+f.size,0);
+      const photoError=files.length>5?'最多只能上傳 5 張照片':files.some(f=>f.size>5*1024*1024)?'單張照片不能超過 5MB':files.some(f=>!['image/jpeg','image/png','image/webp','image/heic','image/heif'].includes(f.type))?'包含不支援的照片格式':'';
+      input.setCustomValidity(photoError);
+      for(const file of files){
+        const item=document.createElement('div');item.className='preview-item';
+        const img=document.createElement('img');img.alt='照片預覽';
+        if(file.type.startsWith('image/')){const url=URL.createObjectURL(file);img.src=url;img.onload=()=>URL.revokeObjectURL(url);}
+        const name=document.createElement('span');name.textContent=file.name;item.append(img,name);preview.append(item);
+      }
+      hint.textContent=photoError||('已選擇 '+files.length+' 張，總大小約 '+(total/1024/1024).toFixed(1)+' MB（每張上限 5MB）');
+    });
   }
   return outer;
 }
@@ -77,7 +125,7 @@ function showSteps(){
   if(needsDistrict)setShown('district',!!country&&!!unit);
   const ready=optionsReady&&!!country&&!!unit&&(!needsDistrict||!!district);
   for(const key of spec.filter(k=>!['country','unit','district'].includes(k)))setShown(key,ready);
-  submitButton.classList.toggle('hidden',!ready);
+  submitButton.classList.toggle('hidden',!ready);\n  updateProgress();
 }
 function onCountryChange(){
   const country=el('country').value;
@@ -92,7 +140,7 @@ function onUnitChange(){
   showSteps();
 }
 function renderType(){
-  const target=el('dynamic');target.replaceChildren();el('status').textContent='';
+  const target=el('dynamic');target.replaceChildren();el('status').textContent='';\n  el('typeHelp').textContent=TYPE_HELP[typeField.value]||'選擇回報類別後，會依序顯示需要填寫的資料。';
   const spec=TYPES[el('type').value];
   if(!spec){submitButton.classList.add('hidden');return;}
   for(const key of spec)target.append(field(key));
@@ -119,7 +167,14 @@ function base64(file){return new Promise((resolve,reject)=>{const reader=new Fil
   reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file);});}
 form.addEventListener('submit',async e=>{
   e.preventDefault();const type=el('type').value;if(!TYPES[type]||submitButton.classList.contains('hidden'))return;
-  const btn=submitButton,status=el('status');btn.disabled=true;status.className='status';
+  const btn=submitButton,status=el('status');
+  const spec=TYPES[type],lines=[typeField.selectedOptions[0]?.textContent, '國家：'+el('country').value,'單位：'+el('unit').value,'區域：'+el('district').value];
+  for(const key of spec.filter(k=>!['country','unit','district','files'].includes(k))){
+    const node=el(key);lines.push(displayLabel(key)+'：'+(node.tagName==='SELECT'?node.selectedOptions[0]?.textContent:node.value));
+  }
+  if(el('files'))lines.push('照片：'+el('files').files.length+' 張');
+  if(!confirm('請再確認回報內容：\n\n'+lines.join('\n')+'\n\n確定送出嗎？'))return;
+  btn.disabled=true;btn.textContent='正在送出，請勿重複點擊…';status.className='status';
   status.textContent='正在上傳，請勿關閉頁面…';
   try{
     const payload={type};
@@ -138,11 +193,11 @@ form.addEventListener('submit',async e=>{
     const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
     const data=await response.json();if(!data.ok)throw Error(data.error||'送出失敗');
     status.className='status success';status.textContent='回報成功！\n回報編號：'+data.id;
-    form.reset();el('dynamic').replaceChildren();submitButton.classList.add('hidden');
+    form.reset();el('dynamic').replaceChildren();submitButton.classList.add('hidden');updateProgress();
   }catch(err){
     status.className='status error';status.textContent='回報未確認成功：'+err.message+'。請先向管理員確認是否已收到，避免重複回報。';
-  }finally{btn.disabled=false;}
+  }finally{btn.disabled=false;btn.textContent='檢查資料並送出';}
 });
 if(!API_URL.startsWith('https://')){el('status').className='status error';el('status').textContent='尚未設定 Apps Script 網址。';}
-else loadOptions();
+else loadOptions();\nupdateProgress();
 </script></body></html>
