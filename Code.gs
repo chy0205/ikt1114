@@ -1,6 +1,6 @@
 const CONFIG = {
   SPREADSHEET_ID: '1ZglfWKES6sHWcn2vi9JVHXHVJImPqzcWGb_rYHaj0Uk',
-  DRIVE_FOLDER_ID: '請填入GoogleDrive資料夾ID',
+  DRIVE_FOLDER_ID: '1KlTFhCQhSX40oqEps8cP-BVXRNxhglUM',
   MAX_FILES: 5,
   MAX_FILE_BYTES: 5 * 1024 * 1024,
 };
