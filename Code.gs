@@ -7,12 +7,12 @@ const CONFIG = {
 const TYPES = {
   personal: { sheet: '個人渡眾', fields: ['country','unit','district','guide','eventDate','count'], photo: true },
   family: { sheet: '家堂渡眾', fields: ['country','unit','district','temple','host','eventDate','count'], photo: false },
-  public: { sheet: '公堂渡眾', fields: ['country','unit','temple','eventDate','count'], photo: false },
+  public: { sheet: '公堂渡眾', fields: ['country','unit','reporterName','temple','eventDate','count'], photo: false },
   personalClass: { sheet: '個人成全進階班', fields: ['country','unit','district','classType','mentor','student','eventDate','session'], photo: true },
-  publicClass: { sheet: '公堂進階班', fields: ['country','unit','temple','classType','count'], photo: true },
+  publicClass: { sheet: '公堂進階班', fields: ['country','unit','reporterName','temple','classType','count'], photo: true },
   temple: { sheet: '成全安堂完成', fields: ['country','unit','district','mentor','host','eventDate'], photo: true },
 };
-const HEADERS = ['回報編號','送出時間','回報類別','國別','單位','區別','引師姓名','佛堂或公堂堂號','壇主姓名','成全者姓名','班員姓名','進階班類別','辦道／上課／安堂日期','渡眾／達標人數','上課次數','照片連結'];
+const HEADERS = ['回報編號','送出時間','回報類別','國別','單位','區別','引師姓名','佛堂或公堂堂號','壇主姓名','成全者姓名','班員姓名','進階班類別','辦道／上課／安堂日期','渡眾／達標人數','上課次數','照片連結','回報人姓名'];
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || '';
   if (action === 'options') return json_(getOptions_());
@@ -68,6 +68,8 @@ function submit_(p) {
     let sh = ss.getSheetByName(spec.sheet);
     if (!sh) { sh = ss.insertSheet(spec.sheet); sh.appendRow(HEADERS); }
     if (sh.getLastRow() === 0) sh.appendRow(HEADERS);
+    // 舊工作表原為 A:P；新增姓名欄在 Q 欄，避免改變既有 16 欄資料位置。
+    if (!sh.getRange(1, 17).getValue()) sh.getRange(1, 17).setValue('回報人姓名');
     const id = Utilities.getUuid();
     const folder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
     const urls = [];
@@ -78,7 +80,7 @@ function submit_(p) {
       const blob = Utilities.newBlob(bytes, f.mimeType, id + '_' + (urls.length + 1) + '.' + ext);
       urls.push(folder.createFile(blob).getUrl());
     }
-    sh.appendRow([id,new Date(),spec.sheet,p.country,p.unit,p.district,p.guide,p.temple,p.host,p.mentor,p.student,p.classType,p.eventDate,p.count,p.session,urls.join('\n')].map(safeText_));
+    sh.appendRow([id,new Date(),spec.sheet,p.country,p.unit,p.district,p.guide,p.temple,p.host,p.mentor,p.student,p.classType,p.eventDate,p.count,p.session,urls.join('\n'),p.reporterName].map(safeText_));
     return {ok:true,id};
   } finally { lock.releaseLock(); }
 }
@@ -91,5 +93,6 @@ function setupSheets() {
     let sh = ss.getSheetByName(spec.sheet);
     if (!sh) sh = ss.insertSheet(spec.sheet);
     if (sh.getLastRow() === 0) sh.appendRow(HEADERS);
+    if (!sh.getRange(1, 17).getValue()) sh.getRange(1, 17).setValue('回報人姓名');
   });
 }
