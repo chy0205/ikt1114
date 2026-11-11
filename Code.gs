@@ -7,20 +7,20 @@ const CONFIG = {
 const TYPES = {
   personal: { sheet: '個人渡眾', fields: ['country','unit','district','guide','eventDate','count'], photo: true },
   family: { sheet: '家堂渡眾', fields: ['country','unit','district','temple','host','eventDate','count'], photo: false },
-  public: { sheet: '公堂渡眾', fields: ['country','unit','reporterName','temple','eventDate','count'], photo: false },
+  public: { sheet: '公堂渡眾', fields: ['country','unit','district','reporterName','temple','eventDate','count'], photo: false },
   personalClass: { sheet: '個人成全進階班', fields: ['country','unit','district','classType','mentor','student','eventDate','session'], photo: true },
-  publicClass: { sheet: '公堂進階班', fields: ['country','unit','reporterName','temple','classType','count'], photo: true },
+  publicClass: { sheet: '公堂進階班', fields: ['country','unit','district','reporterName','temple','classType','count'], photo: true },
   temple: { sheet: '成全安堂完成', fields: ['country','unit','district','mentor','host','eventDate'], photo: true },
 };
 // 其他四類沿用 A:P 的既有共用格式；公堂兩類依表單順序使用各自欄位，不新增 Q 欄。
 const HEADERS = ['回報編號','送出時間','回報類別','國別','單位','區別','引師姓名','佛堂或公堂堂號','壇主姓名','成全者姓名','班員姓名','進階班類別','辦道／上課／安堂日期','渡眾／達標人數','上課次數','照片連結'];
 const PUBLIC_HEADERS = {
-  public: ['回報編號','送出時間','回報類別','國別','單位','回報人姓名','公堂堂號','辦道日期','渡眾人數','照片連結'],
-  publicClass: ['回報編號','送出時間','回報類別','國別','單位','回報人姓名','公堂堂號','進階班類別','堂數達標之班員人數','照片連結']
+  public: ['回報編號','送出時間','回報類別','國別','單位','區域','回報人姓名','公堂堂號','辦道日期','渡眾人數','照片連結'],
+  publicClass: ['回報編號','送出時間','回報類別','國別','單位','區域','回報人姓名','公堂堂號','進階班類別','堂數達標之班員人數','照片連結']
 };
 function headersFor_(type) { return PUBLIC_HEADERS[type] || HEADERS; }
 function rowFor_(type, p, id, urls) {
-  const prefix = [id, new Date(), TYPES[type].sheet, p.country, p.unit];
+  const prefix = [id, new Date(), TYPES[type].sheet, p.country, p.unit, p.district];
   if (type === 'public') return prefix.concat([p.reporterName,p.temple,p.eventDate,p.count,urls.join('\n')]);
   if (type === 'publicClass') return prefix.concat([p.reporterName,p.temple,p.classType,p.count,urls.join('\n')]);
   return [id,new Date(),TYPES[type].sheet,p.country,p.unit,p.district,p.guide,p.temple,p.host,p.mentor,p.student,p.classType,p.eventDate,p.count,p.session,urls.join('\n')];
