@@ -73,7 +73,8 @@ function field(key) {
     if(key==='session')for(let i=1;i<=24;i++)input.add(new Option('第'+i+'次',i));
   } else {
     input=document.createElement('input');input.type=key==='eventDate'?'date':key==='count'?'number':key==='files'?'file':'text';
-    if(key==='count'){input.min='0';input.step='1';input.inputMode='numeric';}\n    if(['guide','reporterName','host','mentor','student','temple'].includes(key)){input.maxLength=120;input.autocomplete='off';}
+    if(key==='count'){input.min='0';input.step='1';input.inputMode='numeric';}
+    if(['guide','reporterName','host','mentor','student','temple'].includes(key)){input.maxLength=120;input.autocomplete='off';}
     if(key==='files'){input.accept='image/jpeg,image/png,image/webp,image/heic,image/heif';input.multiple=true;}
   }
   input.id=key;input.name=key;input.required=true;outer.append(input);
@@ -125,7 +126,8 @@ function showSteps(){
   if(needsDistrict)setShown('district',!!country&&!!unit);
   const ready=optionsReady&&!!country&&!!unit&&(!needsDistrict||!!district);
   for(const key of spec.filter(k=>!['country','unit','district'].includes(k)))setShown(key,ready);
-  submitButton.classList.toggle('hidden',!ready);\n  updateProgress();
+  submitButton.classList.toggle('hidden',!ready);
+  updateProgress();
 }
 function onCountryChange(){
   const country=el('country').value;
