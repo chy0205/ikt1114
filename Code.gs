@@ -12,7 +12,19 @@ const TYPES = {
   publicClass: { sheet: '公堂進階班', fields: ['country','unit','reporterName','temple','classType','count'], photo: true },
   temple: { sheet: '成全安堂完成', fields: ['country','unit','district','mentor','host','eventDate'], photo: true },
 };
-const HEADERS = ['回報編號','送出時間','回報類別','國別','單位','區別','引師姓名','佛堂或公堂堂號','壇主姓名','成全者姓名','班員姓名','進階班類別','辦道／上課／安堂日期','渡眾／達標人數','上課次數','照片連結','回報人姓名'];
+// 其他四類沿用 A:P 的既有共用格式；公堂兩類依表單順序使用各自欄位，不新增 Q 欄。
+const HEADERS = ['回報編號','送出時間','回報類別','國別','單位','區別','引師姓名','佛堂或公堂堂號','壇主姓名','成全者姓名','班員姓名','進階班類別','辦道／上課／安堂日期','渡眾／達標人數','上課次數','照片連結'];
+const PUBLIC_HEADERS = {
+  public: ['回報編號','送出時間','回報類別','國別','單位','回報人姓名','公堂堂號','辦道日期','渡眾人數','照片連結'],
+  publicClass: ['回報編號','送出時間','回報類別','國別','單位','回報人姓名','公堂堂號','進階班類別','堂數達標之班員人數','照片連結']
+};
+function headersFor_(type) { return PUBLIC_HEADERS[type] || HEADERS; }
+function rowFor_(type, p, id, urls) {
+  const prefix = [id, new Date(), TYPES[type].sheet, p.country, p.unit];
+  if (type === 'public') return prefix.concat([p.reporterName,p.temple,p.eventDate,p.count,urls.join('\n')]);
+  if (type === 'publicClass') return prefix.concat([p.reporterName,p.temple,p.classType,p.count,urls.join('\n')]);
+  return [id,new Date(),TYPES[type].sheet,p.country,p.unit,p.district,p.guide,p.temple,p.host,p.mentor,p.student,p.classType,p.eventDate,p.count,p.session,urls.join('\n')];
+}
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || '';
   if (action === 'options') return json_(getOptions_());
@@ -66,10 +78,8 @@ function submit_(p) {
   try {
     const ss = sheet_();
     let sh = ss.getSheetByName(spec.sheet);
-    if (!sh) { sh = ss.insertSheet(spec.sheet); sh.appendRow(HEADERS); }
-    if (sh.getLastRow() === 0) sh.appendRow(HEADERS);
-    // 舊工作表原為 A:P；新增姓名欄在 Q 欄，避免改變既有 16 欄資料位置。
-    if (!sh.getRange(1, 17).getValue()) sh.getRange(1, 17).setValue('回報人姓名');
+    if (!sh) { sh = ss.insertSheet(spec.sheet); sh.appendRow(headersFor_(p.type)); }
+    if (sh.getLastRow() === 0) sh.appendRow(headersFor_(p.type));
     const id = Utilities.getUuid();
     const folder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
     const urls = [];
@@ -80,7 +90,7 @@ function submit_(p) {
       const blob = Utilities.newBlob(bytes, f.mimeType, id + '_' + (urls.length + 1) + '.' + ext);
       urls.push(folder.createFile(blob).getUrl());
     }
-    sh.appendRow([id,new Date(),spec.sheet,p.country,p.unit,p.district,p.guide,p.temple,p.host,p.mentor,p.student,p.classType,p.eventDate,p.count,p.session,urls.join('\n'),p.reporterName].map(safeText_));
+    sh.appendRow(rowFor_(p.type,p,id,urls).map(safeText_));
     return {ok:true,id};
   } finally { lock.releaseLock(); }
 }
@@ -89,10 +99,10 @@ function setupSheets() {
   let options = ss.getSheetByName('選項設定');
   if (!options) options = ss.insertSheet('選項設定');
   if (options.getLastRow() === 0) options.appendRow(['國別','單位','區別']);
-  Object.values(TYPES).forEach(spec => {
+  Object.keys(TYPES).forEach(type => {
+    const spec = TYPES[type];
     let sh = ss.getSheetByName(spec.sheet);
     if (!sh) sh = ss.insertSheet(spec.sheet);
-    if (sh.getLastRow() === 0) sh.appendRow(HEADERS);
-    if (!sh.getRange(1, 17).getValue()) sh.getRange(1, 17).setValue('回報人姓名');
+    if (sh.getLastRow() === 0) sh.appendRow(headersFor_(type));
   });
 }
