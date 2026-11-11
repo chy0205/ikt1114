@@ -1,5 +1,5 @@
 const CONFIG = {
-  SPREADSHEET_ID: '請填入Google試算表ID',
+  SPREADSHEET_ID: '1ZglfWKES6sHWcn2vi9JVHXHVJImPqzcWGb_rYHaj0Uk',
   DRIVE_FOLDER_ID: '請填入GoogleDrive資料夾ID',
   MAX_FILES: 5,
   MAX_FILE_BYTES: 5 * 1024 * 1024,
