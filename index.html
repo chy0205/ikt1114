@@ -151,8 +151,6 @@ function renderType(){
   const spec=TYPES[el('type').value];
   if(!spec){submitButton.classList.add('hidden');return;}
   for(const key of spec)target.append(field(key));
-  target.addEventListener('input',updateProgress,{once:false});
-  target.addEventListener('change',updateProgress,{once:false});
   el('country').addEventListener('change',onCountryChange);
   el('unit').addEventListener('change',onUnitChange);
   if(el('district'))el('district').addEventListener('change',showSteps);
@@ -162,6 +160,8 @@ function renderType(){
   showSteps();
 }
 el('type').addEventListener('change',renderType);
+el('dynamic').addEventListener('input',updateProgress);
+el('dynamic').addEventListener('change',updateProgress);
 async function loadOptions(){
   try {
     const r=await fetch(API_URL+'?action=options'),data=await r.json();
