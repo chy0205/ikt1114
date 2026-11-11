@@ -71,7 +71,9 @@ function showSteps(){
   const needsDistrict=spec.includes('district');
   const district=el('district')?.value||'';
   setShown('country',true);
-  setShown('unit',!!country);
+  // 唯一單位自動帶入並略過單位欄，不必讓填報者再點選。
+  const soleUnit = country && unique(options.filter(o=>o.country===country).map(o=>o.unit)).length===1;
+  setShown('unit',!!country&&!soleUnit);
   if(needsDistrict)setShown('district',!!country&&!!unit);
   const ready=optionsReady&&!!country&&!!unit&&(!needsDistrict||!!district);
   for(const key of spec.filter(k=>!['country','unit','district'].includes(k)))setShown(key,ready);
