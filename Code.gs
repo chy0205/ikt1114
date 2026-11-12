@@ -162,6 +162,22 @@ function safeText_(x) {
  * 先完成所有照片建立，再將網址寫入回報列；上傳中途失敗時，
  * 僅回收「這次」剛建立的照片，絕不碰觸既有回報檔案。
  */
+/**
+ * 管理員在 Apps Script 編輯器手動執行此函式，讓 Google 顯示
+ * 試算表／Drive OAuth 授權畫面；這個檢查不會建立檔案或修改成績。
+ * 網頁使用者不需要，也不應取得整個 Drive 的編輯權限。
+ */
+function authorizeServices(){
+  const spreadsheet=SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  const folder=DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
+  const result={
+    spreadsheet:spreadsheet.getName(),
+    folder:folder.getName(),
+    message:'已取得試算表與 Google Drive 資料夾的存取權。'
+  };
+  Logger.log(JSON.stringify(result));
+  return result;
+}
 function storePhotos_(files,reportId,created){
   const list=files||[];
   if(!list.length)return [];
@@ -170,7 +186,14 @@ function storePhotos_(files,reportId,created){
     'image/jpeg':'jpg','image/png':'png','image/webp':'webp',
     'image/heic':'heic','image/heif':'heif'
   };
-  const folder=DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
+  let folder;
+  try{folder=DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);}
+  catch(err){
+    const message=String(err&&err.message||err);
+    if(/permission|authorization|權限|授權|scope/i.test(message))
+      throw new Error('照片上傳尚未取得 Google Drive 權限；請管理員在 Apps Script 編輯器執行 authorizeServices() 並完成授權，再重新部署。');
+    throw err;
+  }
   const urls=[];
   try{
     list.forEach(function(file,index){
