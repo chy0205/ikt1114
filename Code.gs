@@ -118,6 +118,8 @@ function doPost(e) {
     else if(action==='lookup') result=lookupReport_(payload);
     else if(action==='changeRequest') result=requestChange_(payload);
     else if(action==='regionalLookup') result=regionalLookup_(payload);
+    else if(action==='regionalReport') result=regionalReport_(payload);
+    else if(action==='regionalChangeRequest') result=regionalChangeRequest_(payload);
     else throw new Error('不支援的操作');
     return json_(result);
   } catch (err) {
@@ -1032,9 +1034,9 @@ function optionPasswordRegions_(password){
   if(regions.length>100)throw new Error('此密碼對應超過100個區域，請聯絡管理員');
   return regions;
 }
-function regionalLookup_(payload){
+function regionalAllowed_(passwordInput){
   requireSecuritySetup_();
-  const password=String(payload.regionalPassword||'').trim();
+  const password=String(passwordInput||'').trim();
   // 相容舊版核發的64位密碼，以及選項設定D欄可手動輸入的6～128字密碼。
   if(password.length<6||password.length>128)throw new Error('查詢密碼錯誤');
   const cache=CacheService.getScriptCache();
@@ -1062,6 +1064,10 @@ function regionalLookup_(payload){
     throw new Error('查詢密碼錯誤或已停用');
   }
   cache.remove(cacheKey);
+  return allowed;
+}
+function regionalLookup_(payload){
+  const allowed=regionalAllowed_(payload.regionalPassword);
   const results=allowed.map(x=>regionViewRows_(x.country,x.unit,x.district));
   const details=[],summary=[];
   results.forEach(x=>{
@@ -1069,4 +1075,64 @@ function regionalLookup_(payload){
   });
   return {ok:true,regions:allowed,summaryHeaders:REGIONAL_SUMMARY_HEADERS,
     detailHeaders:REGIONAL_DETAIL_HEADERS,summary,details,updatedAt:new Date().toISOString()};
+}
+
+
+/**
+ * 區域負責人先經密碼授權，再取回單筆目前欄位供編輯。
+ * 不可由前端傳來的區域或類別自行提升權限。
+ */
+function regionalReport_(p){
+  const allowed=regionalAllowed_(p.regionalPassword);
+  const id=String(p.id||'').trim();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+    throw new Error('回報編號格式不正確');
+  const idx=findIndex_(id);
+  if(!idx)throw new Error('找不到可修改的回報索引，請聯絡管理員');
+  const type=String(idx.values[1]),report=findReport_(type,id);
+  if(!report)throw new Error('找不到原始回報');
+  const f=report.values;
+  const within=allowed.some(x=>x.country===f.country&&x.unit===f.unit&&x.district===f.district);
+  if(!within)throw new Error('此回報不在授權區域內');
+  return {ok:true,id,type,version:Number(idx.values[5]),status:String(idx.values[4]),
+    fields:f,photoCount:report.photos.length,hasPendingRequest:pendingChange_(id)};
+}
+/**
+ * 區域負責人只可申請修改自己目前授權區域內的既有回報文字資料。
+ * 不可修改 country/unit/district：跨區調整必須聯絡管理員處理。
+ * 與個別回報修改走相同的「修改申請」審核工作表。
+ */
+function regionalChangeRequest_(p){
+  const allowed=regionalAllowed_(p.regionalPassword);
+  const id=String(p.id||'').trim();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+    throw new Error('回報編號格式不正確');
+  const patch=p.changes;
+  if(!patch||typeof patch!=='object'||Array.isArray(patch)||!Object.keys(patch).length)
+    throw new Error('請至少修改一個欄位');
+  if(Object.keys(patch).some(k=>['country','unit','district'].includes(k)))
+    throw new Error('區域負責人無法跨區修改國別、單位或區域，請聯絡管理員');
+  const reason=String(p.reason||'').trim();
+  if(reason.length<4||reason.length>500)throw new Error('請填寫4至500字的修改原因');
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    // 在持鎖的寫入階段重新讀取 D 欄密碼與授權範圍，避免管理員剛撤銷權限。
+    const latestAllowed=regionalAllowed_(p.regionalPassword);
+    const idx=findIndex_(id);
+    if(!idx)throw new Error('找不到可修改的回報索引');
+    if(String(idx.values[4])==='已取消')throw new Error('已取消的回報不可提出修改申請');
+    if(Number(idx.values[5])!==Number(p.version))throw new Error('回報資料已更新，請重新查詢');
+    if(pendingChange_(id))throw new Error('已有待審核申請，請等管理員處理');
+    const type=String(idx.values[1]),report=findReport_(type,id);
+    if(!report)throw new Error('原始回報不存在');
+    const f=report.values;
+    if(!latestAllowed.some(x=>x.country===f.country&&x.unit===f.unit&&x.district===f.district))
+      throw new Error('此回報已不在密碼授權範圍');
+    validateChange_(type,f,patch);
+    if(Object.keys(patch).every(k=>String(patch[k])===String(f[k])))throw new Error('修改內容與原始資料相同');
+    const requestId=Utilities.getUuid();
+    changeSheet_().appendRow([requestId,id,'modify',Number(idx.values[5]),JSON.stringify(f),
+      JSON.stringify(patch),safeText_('[區域負責人申請] '+reason),'[]','待審核',new Date(),'','','']);
+    return {ok:true,requestId,status:'待審核'};
+  }finally{lock.releaseLock();}
 }
