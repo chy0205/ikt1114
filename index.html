@@ -356,6 +356,8 @@ const LOOKUP_KEYS={country:'國家',unit:'單位',district:'區域',guide:'引�
 let foundReport=null,changeMode='modify';
 function switchPanel(target){
   const look=target==='lookup',regional=target==='regional';
+  // Leaving the regional tab clears its password and private report data.
+  if(!regional)regionalClear_();
   el('reportPanel').classList.toggle('hidden',look||regional);
   el('lookupPanel').classList.toggle('hidden',!look);
   el('regionalPanel').classList.toggle('hidden',!regional);
@@ -639,6 +641,7 @@ el('regionalEditForm').addEventListener('submit',async event=>{
       id:r.id,version:r.version,changes,reason});
     regionalEditReset_();
     statusMessage('regionalEditStatus','已送出待審核申請，申請編號：'+result.requestId);
+    await regionalRefreshRequests_();
     el('regionalEditOpen').disabled=true;
     el('regionalReportId').querySelectorAll('option').forEach(opt=>{if(opt.value===r.id)opt.disabled=true;});
   }catch(err){statusMessage('regionalEditStatus',err.message,true);}
