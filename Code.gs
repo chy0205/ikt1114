@@ -246,6 +246,9 @@ function setupSheets() {
   let options = ss.getSheetByName('選項設定');
   if (!options) options = ss.insertSheet('選項設定');
   if (options.getLastRow() === 0) options.appendRow(['國別','單位','區別']);
+  // 新增 D 欄作為區域負責人手動輸入密碼；不覆蓋已存在的 D1 標題。
+  if (!String(options.getRange('D1').getDisplayValue()||'').trim())
+    options.getRange('D1').setValue('區域查詢密碼');
   Object.keys(TYPES).forEach(type => {
     const spec=TYPES[type];
     let sh=ss.getSheetByName(spec.sheet);
@@ -1010,6 +1013,7 @@ function adminRevokeRegionalAccessPrompt(){
 function optionPasswordRegions_(password){
   const sh=sheet_().getSheetByName('選項設定');
   if(!sh||sh.getLastRow()<2||sh.getLastColumn()<4)return [];
+  if(String(sh.getRange('D1').getDisplayValue()).trim()!=='區域查詢密碼')return [];
   // A~D 範圍，只由伺服器讀取。
   const records=sh.getRange(2,1,sh.getLastRow()-1,4).getDisplayValues();
   const regions=[],seen={};
