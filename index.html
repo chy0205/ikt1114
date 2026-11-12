@@ -38,6 +38,7 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
 .regional-bar-track{height:12px;background:#e3ebe6;border-radius:9px;overflow:hidden;margin-top:5px}
 .regional-bar-fill{background:#337858;height:100%;border-radius:9px;min-width:0}
 @media(max-width:560px){.regional-stat-grid{grid-template-columns:1fr 1fr}}
+textarea{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px solid #cddbd0;border-radius:11px;background:#fff;color:#243e32;min-height:95px;resize:vertical}textarea:focus{outline:none;border-color:#3a956d;box-shadow:0 0 0 3px #3a956d25}
 </style></head><body><main class="wrap"><header class="hero"><div class="eyebrow">寶光崇正 · 丁未年</div><h1>2027 白陽慈航盛會</h1><p>線上成績回報系統｜手機、電腦皆可使用</p></header><section class="panel"><div class="notice"><strong>回報前請留意</strong>第一梯次結算：2027/05/23 23:59<br>第二梯次結算：2027/11/07 23:59<br>請確認資料正確，並依回報類別上傳必要的驗證照片。</div><div class="tabs" role="tablist" aria-label="系統功能">
 <button type="button" class="tab-button" id="tabReport" role="tab" aria-selected="true" aria-controls="reportPanel">新增成績回報</button>
 <button type="button" class="tab-button" id="tabLookup" role="tab" aria-selected="false" aria-controls="lookupPanel">查詢／申請修改</button>
@@ -70,6 +71,16 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
       <div id="editableFields" class="compact-fields"></div>
       <div class="field"><label for="changeReason">申請原因 *</label><input id="changeReason" required maxlength="500" placeholder="請具體說明填錯或需要取消的原因"></div>
       <div class="button-row"><button type="submit" id="sendChange">送出申請</button><button type="button" id="closeChange" class="button-outline">返回</button></div>
+    </form>
+    <form id="cancelRequestForm" class="hidden lookup-card">
+      <h3 style="margin:0 0 10px">申請取消這筆回報</h3>
+      <p class="muted-note">取消需由管理員審核，送出申請不會立即刪除資料或照片；核准後原始回報將標示「已取消」，不再列入有效成績。</p>
+      <div class="field"><label for="cancelRequestReason">取消原因 *</label>
+        <textarea id="cancelRequestReason" required minlength="4" maxlength="500" rows="3" placeholder="請填寫至少4個字，說明為何需要取消這筆回報"></textarea>
+      </div>
+      <div class="button-row"><button type="submit" id="submitCancelRequest">送出取消申請</button>
+        <button type="button" id="closeCancelRequest" class="button-outline">返回</button></div>
+      <div id="cancelRequestStatus" role="status" aria-live="polite" class="status"></div>
     </form>
   </div>
 </div>
@@ -379,7 +390,9 @@ function statusMessage(id,msg,error=false){
 }
 function renderLookup(data){
   foundReport=data;
-  el('lookupResult').classList.remove('hidden');el('changeForm').classList.add('hidden');
+  el('lookupResult').classList.remove('hidden');
+  el('changeForm').classList.add('hidden');
+  el('cancelRequestForm').classList.add('hidden');
   const info=el('lookupSummary');info.replaceChildren();
   const h=document.createElement('h3');h.textContent='回報資料';h.style.margin='0 0 8px';info.append(h);
   const badge=document.createElement('span');badge.className='readonly-tag';badge.textContent='狀態：'+data.status;info.append(badge);
@@ -440,8 +453,37 @@ function openChangeForm(mode){
   el('changeReason').value='';
   el('sendChange').textContent=mode==='cancel'?'送出取消申請':'送出修改申請';
 }
-el('openModify').addEventListener('click',()=>openChangeForm('modify'));
-el('openCancel').addEventListener('click',()=>openChangeForm('cancel'));
+el('openModify').addEventListener('click',()=>{el('cancelRequestForm').classList.add('hidden');openChangeForm('modify');});
+el('openCancel').addEventListener('click',()=>{
+  if(!foundReport||foundReport.hasPendingRequest||foundReport.status==='已取消')return;
+  el('changeForm').classList.add('hidden');
+  el('cancelRequestForm').classList.remove('hidden');
+  el('cancelRequestReason').value='';
+  el('cancelRequestStatus').textContent='';
+  el('cancelRequestReason').focus();
+});
+el('closeCancelRequest').addEventListener('click',()=>el('cancelRequestForm').classList.add('hidden'));
+el('cancelRequestForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const report=foundReport;
+  if(!report||report.hasPendingRequest||report.status==='已取消')return;
+  const reason=el('cancelRequestReason').value.trim();
+  if(reason.length<4||reason.length>500){
+    statusMessage('cancelRequestStatus','請填寫4～500字的取消原因。',true);return;
+  }
+  if(!confirm('確定針對這筆回報提出取消申請？管理員核准後才會標記取消，原始資料及照片仍保留。'))return;
+  const button=el('submitCancelRequest');button.disabled=true;button.textContent='送出中…';
+  try{
+    const result=await apiPost({action:'changeRequest',changeType:'cancel',
+      id:report.id,lookupPassword:el('lookupPassword').value,
+      version:report.version,changes:{},reason});
+    report.hasPendingRequest=true;
+    renderLookup(report);
+    statusMessage('lookupStatus','取消申請已送出，狀態：待審核。申請編號：'+result.requestId);
+  }catch(err){
+    statusMessage('cancelRequestStatus','取消申請未確認成功：'+err.message+'。請先查詢是否已有待審核申請，勿重複送出。',true);
+  }finally{button.disabled=false;button.textContent='送出取消申請';}
+});
 el('closeChange').addEventListener('click',()=>el('changeForm').classList.add('hidden'));
 el('changeForm').addEventListener('submit',async e=>{
   e.preventDefault();if(!foundReport)return;
