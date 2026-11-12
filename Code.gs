@@ -103,10 +103,14 @@ function migrateReportSheets() {
     if(converted.length)sh.getRange(2,1,converted.length,expected.length).setValues(converted);
   });
 }
+// 只輸出不含權限資訊的部署識別，用於核對「網站實際連到哪一版」。
+const API_BUILD='regional-change-20261112-v2';
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || '';
   if (action === 'options') return json_(getOptions_());
-  return json_({ ok: true, message: '白陽慈航2027 API 已啟用' });
+  if (action === 'health') return json_({ok:true,build:API_BUILD,
+    actions:['submit','lookup','changeRequest','regionalLookup','regionalReport','regionalChangeRequest']});
+  return json_({ok:true,message:'白陽慈航2027 API 已啟用',build:API_BUILD});
 }
 function doPost(e) {
   try {
@@ -120,7 +124,7 @@ function doPost(e) {
     else if(action==='regionalLookup') result=regionalLookup_(payload);
     else if(action==='regionalReport') result=regionalReport_(payload);
     else if(action==='regionalChangeRequest') result=regionalChangeRequest_(payload);
-    else throw new Error('不支援的操作');
+    else throw new Error('不支援的操作：'+String(action).slice(0,40)+'；請確認部署版本與網站 API_URL 一致');
     return json_(result);
   } catch (err) {
     return json_({ok:false,error:String(err.message||err)});
@@ -1015,7 +1019,9 @@ function adminRevokeRegionalAccessPrompt(){
 function optionPasswordRegions_(password){
   const sh=sheet_().getSheetByName('選項設定');
   if(!sh||sh.getLastRow()<2||sh.getLastColumn()<4)return [];
-  if(String(sh.getRange('D1').getDisplayValue()).trim()!=='區域查詢密碼')return [];
+  // 相容現有工作表的「密碼」標題，也支援完整的「區域查詢密碼」。
+  const passwordHeader=String(sh.getRange('D1').getDisplayValue()||'').trim();
+  if(!['區域查詢密碼','密碼'].includes(passwordHeader))return [];
   // A~D 範圍，只由伺服器讀取。
   const records=sh.getRange(2,1,sh.getLastRow()-1,4).getDisplayValues();
   const regions=[],seen={};
