@@ -104,12 +104,12 @@ function migrateReportSheets() {
   });
 }
 // 只輸出不含權限資訊的部署識別，用於核對「網站實際連到哪一版」。
-const API_BUILD='regional-change-20261112-v2';
+const API_BUILD='regional-enhancements-20261112-v3';
 function doGet(e) {
   const action = (e && e.parameter && e.parameter.action) || '';
   if (action === 'options') return json_(getOptions_());
   if (action === 'health') return json_({ok:true,build:API_BUILD,
-    actions:['submit','lookup','changeRequest','regionalLookup','regionalReport','regionalChangeRequest']});
+    actions:['submit','lookup','changeRequest','regionalLookup','regionalReport','regionalChangeRequest','regionalRequests']});
   return json_({ok:true,message:'白陽慈航2027 API 已啟用',build:API_BUILD});
 }
 function doPost(e) {
@@ -124,6 +124,7 @@ function doPost(e) {
     else if(action==='regionalLookup') result=regionalLookup_(payload);
     else if(action==='regionalReport') result=regionalReport_(payload);
     else if(action==='regionalChangeRequest') result=regionalChangeRequest_(payload);
+    else if(action==='regionalRequests') result=regionalRequests_(payload);
     else throw new Error('不支援的操作：'+String(action).slice(0,40)+'；請確認部署版本與網站 API_URL 一致');
     return json_(result);
   } catch (err) {
@@ -578,6 +579,7 @@ function onOpen(e){
     .addItem('重設回報查詢密碼…','resetLookupPasswordSelected')
     .addSeparator()
     .addItem('審核修改／取消申請…','adminReviewPending')
+    .addItem('成績、索引與照片健檢…','adminIntegrityCheckPrompt')
     .addSeparator()
     .addItem('核發舊式區域密碼（選用）…','adminIssueRegionalAccessPrompt')
     .addItem('停用區域查詢密碼…','adminRevokeRegionalAccessPrompt')
@@ -1046,11 +1048,27 @@ function optionPasswordRegions_(password){
   if(regions.length>100)throw new Error('此密碼對應超過100個區域，請聯絡管理員');
   return regions;
 }
+/**
+ * Best-effort shared failed-authentication guard in addition to per-password throttling.
+ * GAS web apps do not reliably expose a trusted caller IP; this global limiter may
+ * temporarily block legitimate users during an attack. Never log entered passwords.
+ * Cache increment is not atomic, so deploy-time quotas/network throttling are still needed.
+ */
+function regionalFailedThrottle_(){
+  const cache=CacheService.getScriptCache();
+  const key='region_invalid_global_15min';
+  if(Number(cache.get(key)||0)>=80)throw new Error('區域查詢暫時繁忙，請15分鐘後再試或聯絡管理員');
+}
+function recordRegionalFailure_(){
+  const cache=CacheService.getScriptCache(),key='region_invalid_global_15min';
+  cache.put(key,String(Math.min(1000,Number(cache.get(key)||0)+1)),900);
+}
 function regionalAllowed_(passwordInput){
   requireSecuritySetup_();
   const password=String(passwordInput||'').trim();
   // 相容舊版核發的64位密碼，以及選項設定D欄可手動輸入的6～128字密碼。
   if(password.length<6||password.length>128)throw new Error('查詢密碼錯誤');
+  regionalFailedThrottle_();
   const cache=CacheService.getScriptCache();
   // 限制同一錯誤密碼的重複嘗試；不把原始密碼放進快取鍵。
   const cacheKey='regional_fail_'+digest_(password,'region-attempt').slice(0,40);
@@ -1072,6 +1090,7 @@ function regionalAllowed_(passwordInput){
     }
   }
   if(!allowed.length){
+    recordRegionalFailure_();
     cache.put(cacheKey,String(Number(cache.get(cacheKey)||0)+1),900);
     throw new Error('查詢密碼錯誤或已停用');
   }
@@ -1176,4 +1195,112 @@ function regionalChangeRequest_(p){
       JSON.stringify(patch),safeText_('[區域負責人申請] '+reason),'[]','待審核',new Date(),'','','']);
     return {ok:true,requestId,status:'待審核'};
   }finally{lock.releaseLock();}
+}
+
+
+/**
+ * Show change-request statuses only for records that STILL belong to password-
+ * authorized districts. No original/modified JSON, photos, password hashes or
+ * admin-only audit data is returned.
+ */
+function regionalRequests_(payload){
+  const allowed=regionalAllowed_(payload.regionalPassword);
+  const allowedIds={};
+  allowed.forEach(area=>regionViewRows_(area.country,area.unit,area.district)
+    .details.forEach(row=>{allowedIds[String(row[0])]=true;}));
+  const sh=sheet_().getSheetByName('修改申請');
+  if(!sh||sh.getLastRow()<2)return {ok:true,requests:[],total:0};
+  const rows=sh.getRange(2,1,sh.getLastRow()-1,CHANGE_HEADERS.length).getValues();
+  const matched=rows.filter(row=>allowedIds[String(row[1])])
+    .map(row=>({
+      requestId:String(row[0]),reportId:String(row[1]),
+      changeType:String(row[2]),reason:String(row[6]),
+      status:String(row[8]),
+      submittedAt:row[9] instanceof Date
+        ?Utilities.formatDate(row[9],'Asia/Taipei','yyyy/MM/dd HH:mm'):String(row[9]),
+      handledAt:row[10] instanceof Date
+        ?Utilities.formatDate(row[10],'Asia/Taipei','yyyy/MM/dd HH:mm'):String(row[10]||''),
+      reviewNote:String(row[12]||'')
+    })).reverse();
+  return {ok:true,requests:matched.slice(0,200),total:matched.length,truncated:matched.length>200};
+}
+/**
+ * Read-only administrator health scan. Does not create indices, touch photos,
+ * change permissions, or overwrite existing data. Photo URL existence check
+ * is deliberately opt-in and limited to avoid expensive Drive calls.
+ */
+function auditReportIntegrity(includeDriveChecks){
+  requireAdmin_();
+  const ss=sheet_(),issues=[],ids={},summary={reports:0,indexed:0,photos:0,
+    missingIndex:0,orphanIndex:0,duplicateId:0,missingPhotos:0,
+    malformedPhotoLinks:0,missingDriveFiles:0,driveFilesChecked:0};
+  const add=(kind,id,detail)=>{if(issues.length<150)issues.push({kind,id,detail});};
+  const index=ss.getSheetByName('回報索引'),indexRows=index&&index.getLastRow()>1
+    ?index.getRange(2,1,index.getLastRow()-1,INDEX_HEADERS.length).getValues():[];
+  const indexIds={};
+  indexRows.forEach(row=>{if(!row[0])return;summary.indexed++;const id=String(row[0]);
+    if(indexIds[id]){summary.duplicateId++;add('重複索引',id,'回報索引有重複編號');}
+    indexIds[id]={type:String(row[1]),status:String(row[4])};
+  });
+  Object.keys(TYPES).forEach(type=>{
+    const spec=TYPES[type],sh=ss.getSheetByName(spec.sheet);
+    if(!sh||sh.getLastRow()<2)return;
+    const expected=headersFor_(type);
+    const cols=sh.getRange(1,1,1,expected.length).getDisplayValues()[0];
+    if(expected.some((x,i)=>x!==cols[i])){
+      add('欄位格式',type,'該工作表的欄名與目前程式不一致，跳過內容檢查');return;
+    }
+    sh.getRange(2,1,sh.getLastRow()-1,expected.length).getValues().forEach(row=>{
+      if(!row[0])return;
+      summary.reports++;
+      const id=String(row[0]);
+      if(ids[id]){summary.duplicateId++;add('重複回報編號',id,'不同回報紀錄使用相同編號');}
+      ids[id]=type;
+      if(!indexIds[id]){summary.missingIndex++;add('缺少索引',id,spec.sheet);}
+      else if(indexIds[id].type!==type)add('索引類別不一致',id,'索引與原始分頁類別不同');
+      if(!spec.photo)return;
+      const links=String(row[row.length-1]||'').split('\n').filter(Boolean);
+      summary.photos+=links.length;
+      if(spec.photoRequired!==false&&!links.length){
+        summary.missingPhotos++;add('缺少照片連結',id,spec.sheet);
+      }
+      links.forEach(link=>{
+        const match=/^https:\/\/drive\.google\.com\/(?:file\/d\/|open\?id=)([-\w]+)/.exec(link);
+        if(!match){summary.malformedPhotoLinks++;add('照片連結格式',id,'照片連結格式不符');return;}
+        if(includeDriveChecks&&summary.driveFilesChecked<50){
+          summary.driveFilesChecked++;
+          try{if(DriveApp.getFileById(match[1]).isTrashed()){
+            summary.missingDriveFiles++;add('照片已移至垃圾桶',id,'請由管理員人工核對');
+          }}catch(e){
+            summary.missingDriveFiles++;add('照片存取異常',id,'檔案不存在或目前執行帳號無存取權');
+          }
+        }
+      });
+    });
+  });
+  Object.keys(indexIds).forEach(id=>{
+    if(!ids[id]){summary.orphanIndex++;add('孤立索引',id,'索引存在，但六類原始回報均找不到');}
+  });
+  const result={ok:true,checkedAt:Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss'),
+    summary,issues,truncated:issues.length>=150};
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+function adminIntegrityCheckPrompt(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi();
+  const confirm=ui.alert('成績資料健檢（唯讀）',
+    '檢查六類回報、回報索引及照片連結格式。不會修改任何成績或照片。\n按「是」額外抽查前50個照片檔案是否存在（須Drive讀取權限）；按「否」只檢查資料表。',
+    ui.ButtonSet.YES_NO_CANCEL);
+  if(confirm!==ui.Button.YES&&confirm!==ui.Button.NO)return;
+  const result=auditReportIntegrity(confirm===ui.Button.YES);
+  const x=result.summary;
+  ui.alert('健檢結果',
+    '回報筆數：'+x.reports+'\n索引筆數：'+x.indexed+'\n缺少索引：'+x.missingIndex+
+    '\n孤立索引：'+x.orphanIndex+'\n重複編號：'+x.duplicateId+
+    '\n缺少照片連結：'+x.missingPhotos+'\n異常照片網址：'+x.malformedPhotoLinks+
+    '\n抽查照片：'+x.driveFilesChecked+'\n照片存取異常：'+x.missingDriveFiles+
+    '\n\n詳細問題已輸出至 Apps Script 執行記錄（最多150筆），未修改原始資料。',
+    ui.ButtonSet.OK);
+  return result;
 }
