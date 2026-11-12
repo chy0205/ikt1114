@@ -580,6 +580,7 @@ function onOpen(e){
     .addSeparator()
     .addItem('審核修改／取消申請…','adminReviewPending')
     .addItem('成績、索引與照片健檢…','adminIntegrityCheckPrompt')
+    .addItem('重新結算個人與區域成績…','adminRecalculateScoresPrompt')
     .addSeparator()
     .addItem('核發舊式區域密碼（選用）…','adminIssueRegionalAccessPrompt')
     .addItem('停用區域查詢密碼…','adminRevokeRegionalAccessPrompt')
@@ -1314,4 +1315,164 @@ function adminIntegrityCheckPrompt(){
     '\n\n詳細問題已輸出至 Apps Script 執行記錄（最多150筆），未修改原始資料。',
     ui.ButtonSet.OK);
   return result;
+}
+
+
+/**
+ * 管理員專用成績結算。只在管理員主動執行時，建立／更新兩張衍生表：
+ * - 區域成績結算：六類成績獨立統計，不混合人數與筆數
+ * - 個人成績結算：按真實欄位角色分組，不能把引師、成全者、班員、壇主混為一人得分
+ * 取消已核准不計入；待審核照原始值計入，另標待審核筆數。
+ * 不刪除或改寫六類原始回報、照片、索引與修改申請。
+ */
+const SETTLEMENT_REGION_HEADERS=['國別','單位','區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
+  '個人成全進階班回報筆數','公堂進階班達標班員人數','成全安堂完成筆數',
+  '有效回報筆數','待審核申請筆數','結算時間'];
+const SETTLEMENT_PERSON_HEADERS=['國別','單位','區域','姓名','角色',
+  '個人渡眾人數','個人成全進階班回報筆數','成全安堂完成筆數',
+  '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
+  '公堂進階班達標人數（回報人記錄）','個人成全進階班回報筆數（班員記錄）',
+  '有效相關回報筆數','結算時間'];
+const SETTLEMENT_ROLE_FIELDS={
+  personal:[['guide','引師',3]],
+  family:[['host','壇主',8]],
+  public:[['reporterName','回報人',9]],
+  personalClass:[['mentor','成全者',6],['student','班員',11]],
+  publicClass:[['reporterName','回報人',10]],
+  temple:[['mentor','成全者',7]]
+};
+function settlementRows_(){
+  const ss=sheet_(),regions={},people={},seenIds={};
+  const idxSh=ss.getSheetByName('回報索引'),states={};
+  if(idxSh&&idxSh.getLastRow()>1){
+    idxSh.getRange(2,1,idxSh.getLastRow()-1,6).getValues().forEach(row=>{
+      if(!row[0])return;
+      const id=String(row[0]);
+      if(states[id])throw new Error('回報索引有重複 UUID，請先執行資料健檢：'+id);
+      states[id]={type:String(row[1]),status:String(row[4])};
+    });
+  }
+  const change=ss.getSheetByName('修改申請'),pending={};
+  if(change&&change.getLastRow()>1)
+    change.getRange(2,1,change.getLastRow()-1,9).getValues().forEach(row=>{
+      if(String(row[8])==='待審核'&&row[1])pending[String(row[1])]=(pending[String(row[1])]||0)+1;
+    });
+  const stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss');
+  Object.keys(TYPES).forEach(type=>{
+    const spec=TYPES[type],sh=ss.getSheetByName(spec.sheet);
+    if(!sh||sh.getLastRow()<2)return;
+    const header=headersFor_(type),observed=sh.getRange(1,1,1,header.length).getDisplayValues()[0];
+    if(header.some((h,i)=>h!==observed[i]))
+      throw new Error('「'+spec.sheet+'」欄位格式不符，停止結算以免計錯');
+    sh.getRange(2,1,sh.getLastRow()-1,header.length).getValues().forEach(row=>{
+      if(!row[0])return;
+      const id=String(row[0]);
+      if(seenIds[id])throw new Error('原始回報 UUID 重複，停止結算：'+id);
+      seenIds[id]=true;
+      if(states[id]&&states[id].type!==type)throw new Error('回報索引類別與原始成績不一致：'+id);
+      const obj={};spec.fields.forEach((field,i)=>obj[field]=row[i+3]);
+      const c=String(obj.country||'').trim(),u=String(obj.unit||'').trim(),
+        d=String(obj.district||'').trim();
+      if(!c||!u||!d)throw new Error('回報缺少國別、單位或區域，停止結算：'+id);
+      const areaKey=JSON.stringify([c,u,d]);
+      if(!regions[areaKey])regions[areaKey]=[c,u,d,0,0,0,0,0,0,0,0,stamp];
+      const area=regions[areaKey];
+      if(pending[id])area[10]+=pending[id];
+      if(states[id]&&states[id].status==='已取消')return;
+      // 未有回報索引的歷史資料暫按有效統計，須在正式封存前人工健檢。
+      const count=Number(obj.count||0);
+      if(spec.fields.includes('count')&&(!Number.isInteger(count)||count<0))
+        throw new Error('回報人數不是有效整數，停止結算：'+id);
+      const metric={personal:3,family:4,public:5,personalClass:6,publicClass:7,temple:8}[type];
+      const score=['personalClass','temple'].includes(type)?1:count;
+      area[metric]+=score;
+      area[9]+=1;
+      (SETTLEMENT_ROLE_FIELDS[type]||[]).forEach(role=>{
+        const person=String(obj[role[0]]||'').trim();
+        if(!person)return;
+        const pkey=JSON.stringify([c,u,d,person,role[1]]);
+        if(!people[pkey])people[pkey]=[c,u,d,person,role[1],0,0,0,0,0,0,0,0,stamp];
+        const out=people[pkey];
+        out[role[2]]+=score;
+        out[12]+=1;
+      });
+    });
+  });
+  const sort=(a,b)=>{
+    for(let i=0;i<Math.min(a.length,b.length,5);i++){
+      const n=String(a[i]).localeCompare(String(b[i]),'zh-Hant');
+      if(n)return n;
+    }
+    return 0;
+  };
+  return {regional:Object.keys(regions).map(k=>regions[k]).sort(sort),
+    personal:Object.keys(people).map(k=>people[k]).sort(sort),
+    pendingCount:Object.values(pending).reduce((n,v)=>n+v,0),
+    missingIndex:Object.keys(seenIds).filter(id=>!states[id]).length,stamp};
+}
+function settlementSheet_(ss,title,headers,rows){
+  let sh=ss.getSheetByName(title);
+  if(sh){
+    const existing=sh.getRange(1,1,1,headers.length).getDisplayValues()[0];
+    if(existing.some((x,i)=>String(x)!==headers[i]))
+      throw new Error('「'+title+'」已有其他內容或舊表頭；為保護資料，停止覆寫');
+  }else{
+    sh=ss.insertSheet(title);
+  }
+  const needed=rows.length+1,width=headers.length;
+  if(sh.getMaxColumns()<width)sh.insertColumnsAfter(sh.getMaxColumns(),width-sh.getMaxColumns());
+  if(sh.getMaxRows()<needed)sh.insertRowsAfter(sh.getMaxRows(),needed-sh.getMaxRows());
+  sh.getRange(1,1,sh.getMaxRows(),width).clearContent();
+  sh.getRange(1,1,1,width).setValues([headers]);
+  if(rows.length)sh.getRange(2,1,rows.length,width).setValues(rows);
+  sh.setFrozenRows(1);
+  sh.getRange(1,1,1,width).setFontWeight('bold').setBackground('#e6f1e8');
+  if(sh.getFilter())sh.getFilter().remove();
+  sh.getRange(1,1,sh.getMaxRows(),width).createFilter();
+}
+function recalculateScores(){
+  const admin=requireAdmin_();
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    const ss=sheet_(),data=settlementRows_();
+    // Validate both target tabs before writing either.
+    [['個人成績結算',SETTLEMENT_PERSON_HEADERS],['區域成績結算',SETTLEMENT_REGION_HEADERS]]
+      .forEach(pair=>{
+        const sh=ss.getSheetByName(pair[0]);
+        if(!sh)return;
+        const existing=sh.getRange(1,1,1,pair[1].length).getDisplayValues()[0];
+        if(existing.some((x,i)=>String(x)!==pair[1][i]))
+          throw new Error('「'+pair[0]+'」不是系統專用結算表，停止更新');
+      });
+    settlementSheet_(ss,'個人成績結算',SETTLEMENT_PERSON_HEADERS,data.personal);
+    settlementSheet_(ss,'區域成績結算',SETTLEMENT_REGION_HEADERS,data.regional);
+    auditSheet_().appendRow([new Date(),'settlement_refresh','','',admin,'',JSON.stringify({
+      people:data.personal.length,regions:data.regional.length,pending:data.pendingCount,
+      legacyWithoutIndex:data.missingIndex
+    }),'重新結算個人與區域成績；原始紀錄未更動']);
+    return {ok:true,personalRows:data.personal.length,regionalRows:data.regional.length,
+      pendingCount:data.pendingCount,missingIndex:data.missingIndex,updatedAt:data.stamp};
+  }finally{lock.releaseLock();}
+}
+function adminRecalculateScoresPrompt(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi();
+  const yes=ui.alert('重新結算成績',
+    '將建立／更新「個人成績結算」及「區域成績結算」兩個衍生分頁。已核准取消的回報不計入；未完成審核的申請仍以目前原始成績統計。原始成績、照片、索引不會刪除。確定嗎？',
+    ui.ButtonSet.YES_NO);
+  if(yes!==ui.Button.YES)return {ok:false,cancelled:true};
+  try{
+    const result=recalculateScores();
+    ui.alert('結算完成',
+      '個人角色明細：'+result.personalRows+' 列\n區域：'+result.regionalRows+
+      ' 區\n待審核申請：'+result.pendingCount+
+      ' 筆\n無索引舊回報：'+result.missingIndex+
+      ' 筆\n更新：'+result.updatedAt+
+      '\n\n請至「個人成績結算」及「區域成績結算」查看。',
+      ui.ButtonSet.OK);
+    return result;
+  }catch(err){
+    ui.alert('結算未完成',String(err.message||err)+'\n請檢查成績分頁，不要手動刪除舊資料。',ui.ButtonSet.OK);
+    throw err;
+  }
 }
