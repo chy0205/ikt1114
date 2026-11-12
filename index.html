@@ -68,7 +68,7 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
 </div>
 <div id="regionalPanel" class="hidden" role="tabpanel" aria-labelledby="tabRegional">
   <h2 style="font-size:20px;margin:3px 0 8px">區域負責人｜成績查詢</h2>
-  <p class="helper">輸入管理員核發的區域查詢密碼，系統只顯示這組密碼獲准查看的區域。此功能僅供查閱，無法修改或審核成績。</p>
+  <p class="helper">輸入管理員核發的區域查詢密碼，系統只顯示這組密碼獲准查看的區域。可查看授權區域成績，並對區內回報提出修改申請。修改需管理員核准後才生效。</p>
   <form id="regionalForm">
     <div class="field"><label for="regionalPassword">區域專屬查詢密碼 *</label>
       <input type="password" id="regionalPassword" required autocomplete="off" placeholder="請輸入管理員提供的區域查詢密碼"></div>
@@ -82,6 +82,19 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
     </div>
     <div class="lookup-card" style="overflow-x:auto"><h3 style="margin:0 0 8px">區域成績彙整</h3><div id="regionalSummary"></div></div>
     <div class="lookup-card" style="overflow-x:auto"><h3 style="margin:0 0 8px">回報明細</h3><div id="regionalDetails"></div></div>
+    <div class="lookup-card">
+      <h3 style="margin:0 0 8px">申請修改區域回報</h3>
+      <p class="muted-note">先選擇本次查詢中的回報，修改欄位並填寫原因。送出後交由管理員審核，不會立即更動成績。國別、單位、區域及照片不能從此入口修改。</p>
+      <div class="field"><label for="regionalReportId">選擇回報紀錄</label><select id="regionalReportId"><option value="">請選擇要申請修改的回報</option></select></div>
+      <button type="button" id="regionalEditOpen" class="button-outline">載入回報資料並申請修改</button>
+      <form id="regionalEditForm" class="hidden" style="margin-top:18px">
+        <div id="regionalEditInfo" class="muted-note"></div>
+        <div id="regionalEditFields" class="compact-fields"></div>
+        <div class="field" style="margin-top:16px"><label for="regionalEditReason">修改原因 *</label><input id="regionalEditReason" required minlength="4" maxlength="500" placeholder="請說明原始資料哪裡填錯"></div>
+        <div class="button-row"><button type="submit" id="regionalEditSend">送出修改申請</button><button type="button" class="button-outline" id="regionalEditCancel">取消編輯</button></div>
+      </form>
+      <div id="regionalEditStatus" role="status" aria-live="polite" class="status"></div>
+    </div>
     <button type="button" id="regionalClear" class="button-outline">清除畫面與密碼</button>
   </div>
 </div></section><footer>寶光崇正 · 2027</footer></main>
@@ -442,6 +455,88 @@ el('editableFields').addEventListener('change',e=>{
   if(e.target.id==='edit-unit')refreshEditLocation('unit');
 });
 
+let regionalSessionPassword='';
+let regionalEditingReport=null;
+function regionalEditReset_(){
+  regionalEditingReport=null;
+  el('regionalEditForm').classList.add('hidden');
+  el('regionalEditFields').replaceChildren();
+  el('regionalEditReason').value='';
+  el('regionalEditStatus').textContent='';
+}
+function regionalSelectPopulate_(data){
+  const select=el('regionalReportId');select.replaceChildren();
+  select.add(new Option('請選擇要申請修改的回報',''));
+  data.details.forEach(row=>{
+    if(row[6]==='已取消')return;
+    const id=String(row[0]);
+    const label=[row[2],row[5],row[1],id.slice(0,8)].join('｜');
+    select.add(new Option(label,id));
+  });
+  regionalEditReset_();
+}
+function regionalEditField_(key,value){
+  const outer=document.createElement('div');outer.className='field';
+  const label=document.createElement('label');label.textContent=LOOKUP_KEYS[key]||LABEL[key]||key;outer.append(label);
+  let node;
+  if(key==='classType'||key==='session'){
+    node=document.createElement('select');
+    (key==='classType'?['禮行','義理','仁德']:Array.from({length:24},(_,i)=>String(i+1)))
+      .forEach(v=>node.add(new Option(v,v)));
+  }else{
+    node=document.createElement('input');
+    node.type=key==='eventDate'?'date':key==='count'?'number':'text';
+    if(key==='count'){node.min='0';node.step='1';}
+    if(key==='eventDate'){node.min='1000-01-01';node.max='9999-12-31';}
+    node.maxLength=120;
+  }
+  node.id='region-edit-'+key;node.value=String(value??'');node.required=true;outer.append(node);return outer;
+}
+el('regionalEditOpen').addEventListener('click',async()=>{
+  regionalEditReset_();
+  const id=el('regionalReportId').value;
+  if(!id||!regionalSessionPassword){statusMessage('regionalEditStatus','請先查詢區域並選擇一筆回報。',true);return;}
+  const button=el('regionalEditOpen');button.disabled=true;
+  try{
+    const r=await apiPost({action:'regionalReport',regionalPassword:regionalSessionPassword,id});
+    if(r.status==='已取消'||r.hasPendingRequest)
+      throw new Error(r.hasPendingRequest?'此筆回報已有待審核申請。':'已取消的回報不可修改。');
+    regionalEditingReport=r;
+    const fields=el('regionalEditFields');fields.replaceChildren();
+    for(const key of TYPES[r.type].filter(k=>!['files','country','unit','district'].includes(k)))
+      fields.append(regionalEditField_(key,r.fields[key]));
+    el('regionalEditInfo').textContent='正在修改：'+r.id+'｜'+[r.fields.country,r.fields.unit,r.fields.district].join('／')+'（區域欄位不可更動）';
+    el('regionalEditForm').classList.remove('hidden');
+  }catch(err){statusMessage('regionalEditStatus',err.message,true);}
+  finally{button.disabled=false;}
+});
+el('regionalReportId').addEventListener('change',regionalEditReset_);
+el('regionalEditCancel').addEventListener('click',regionalEditReset_);
+el('regionalEditForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const r=regionalEditingReport;
+  if(!r||!regionalSessionPassword)return;
+  const changes={};
+  for(const key of TYPES[r.type].filter(k=>!['files','country','unit','district'].includes(k))){
+    const next=el('region-edit-'+key).value.trim();
+    if(next!==String(r.fields[key]??''))changes[key]=next;
+  }
+  if(!Object.keys(changes).length){statusMessage('regionalEditStatus','請至少修改一個欄位。',true);return;}
+  const reason=el('regionalEditReason').value.trim();
+  if(reason.length<4){statusMessage('regionalEditStatus','請至少填寫4字的修改原因。',true);return;}
+  if(!confirm('確定送出這筆區域回報的修改申請？送出後須管理員核准才會生效。'))return;
+  const button=el('regionalEditSend');button.disabled=true;
+  try{
+    const result=await apiPost({action:'regionalChangeRequest',regionalPassword:regionalSessionPassword,
+      id:r.id,version:r.version,changes,reason});
+    regionalEditReset_();
+    statusMessage('regionalEditStatus','已送出待審核申請，申請編號：'+result.requestId);
+    el('regionalEditOpen').disabled=true;
+    el('regionalReportId').querySelectorAll('option').forEach(opt=>{if(opt.value===r.id)opt.disabled=true;});
+  }catch(err){statusMessage('regionalEditStatus',err.message,true);}
+  finally{button.disabled=false;}
+});
+
 function regionalTable_(target,headers,rows){
   target.replaceChildren();
   if(!rows.length){const p=document.createElement('p');p.className='muted-note';p.textContent='目前沒有符合條件的回報。';target.append(p);return;}
@@ -458,6 +553,10 @@ function regionalTable_(target,headers,rows){
   table.append(body);target.append(table);
 }
 function regionalClear_(){
+  regionalSessionPassword='';
+  regionalEditReset_();
+  el('regionalReportId').replaceChildren();
+  el('regionalEditOpen').disabled=false;
   el('regionalPassword').value='';
   el('regionalResults').classList.add('hidden');
   el('regionalAreas').replaceChildren();
@@ -468,6 +567,8 @@ function regionalClear_(){
 el('regionalClear').addEventListener('click',regionalClear_);
 el('regionalForm').addEventListener('submit',async event=>{
   event.preventDefault();
+  regionalSessionPassword='';
+  regionalEditReset_();
   el('regionalResults').classList.add('hidden');
   const btn=el('regionalSubmit');btn.disabled=true;btn.textContent='查詢中…';
   try{
@@ -479,6 +580,9 @@ el('regionalForm').addEventListener('submit',async event=>{
     });
     regionalTable_(el('regionalSummary'),data.summaryHeaders,data.summary);
     regionalTable_(el('regionalDetails'),data.detailHeaders,data.details);
+    regionalSelectPopulate_(data);
+    regionalSessionPassword=el('regionalPassword').value.trim();
+    el('regionalEditOpen').disabled=false;
     el('regionalPassword').value='';
     el('regionalResults').classList.remove('hidden');
     statusMessage('regionalStatus','查詢成功。共 '+data.regions.length+' 個授權區域、'+data.details.length+' 筆回報明細。');
