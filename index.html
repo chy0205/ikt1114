@@ -113,7 +113,7 @@ function validateFourDigitDate(input){
   if(!input)return true;
   // 輸入不完整時交由 required 處理；完整時要求四位年份與真實的月日。
   const value=input.value;
-  const parts=/^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(value);
+  const parts=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   let valid=true;
   if(input.validity.badInput || input.validity.rangeUnderflow || input.validity.rangeOverflow)valid=false;
   if(value){
