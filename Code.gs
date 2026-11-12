@@ -1329,22 +1329,13 @@ function adminIntegrityCheckPrompt(){
 const SETTLEMENT_REGION_HEADERS=['區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
   '個人成全進階班回報筆數','公堂進階班達標班員人數','成全安堂完成筆數',
   '有效回報筆數','待審核申請筆數','結算時間'];
-const SETTLEMENT_PERSON_HEADERS=['區域','姓名','角色',
-  '個人渡眾人數','個人成全進階班回報筆數','成全安堂完成筆數',
-  '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
-  '公堂進階班達標人數（回報人記錄）',
-  '有效相關回報筆數','結算時間'];
-const SETTLEMENT_ROLE_FIELDS={
-  personal:[['guide','引師',5]],
-  family:[['host','壇主',8]],
-  public:[['reporterName','回報人',9]],
-  // 班員不計入個人成績；只保留成全者角色的紀錄。
-  personalClass:[['mentor','成全者',6]],
-  publicClass:[['reporterName','回報人',10]],
-  temple:[['mentor','成全者',7]]
-};
+const SETTLEMENT_PERSON_HEADERS=['區域','姓名','個人渡眾','家壇渡眾','個人成全進階班','成全安堂回報'];
+const SETTLEMENT_PUBLIC_HEADERS=['區域','姓名','堂號','公堂渡眾','公堂進階班回報'];
+// 統計時「個人渡眾」取引師、「家壇渡眾」取壇主；「個人成全進階班」
+// 與「成全安堂」均取成全者。班員完全不計分。
+// 公堂分頁按區域+回報人姓名+堂號彙整，避免不同堂號錯誤合併。
 function settlementRows_(){
-  const ss=sheet_(),regions={},people={},seenIds={},districtOwners={};
+  const ss=sheet_(),regions={},people={},publicPeople={},seenIds={},districtOwners={};
   const idxSh=ss.getSheetByName('回報索引'),states={};
   if(idxSh&&idxSh.getLastRow()>1){
     idxSh.getRange(2,1,idxSh.getLastRow()-1,6).getValues().forEach(row=>{
@@ -1393,15 +1384,28 @@ function settlementRows_(){
       const score=['personalClass','temple'].includes(type)?1:count;
       area[metric]+=score;
       area[9]+=1;
-      (SETTLEMENT_ROLE_FIELDS[type]||[]).forEach(role=>{
-        const person=String(obj[role[0]]||'').trim();
-        if(!person)return;
-        const pkey=JSON.stringify([c,u,d,person,role[1]]);
-        if(!people[pkey])people[pkey]=[c,u,d,person,role[1],0,0,0,0,0,0,0,stamp];
-        const out=people[pkey];
-        out[role[2]]+=score;
-        out[11]+=1;
-      });
+      const personalFields={
+        personal:['guide',2],family:['host',3],
+        personalClass:['mentor',4],temple:['mentor',5]
+      };
+      const mapping=personalFields[type];
+      if(mapping){
+        const name=String(obj[mapping[0]]||'').trim();
+        if(name){
+          const key=JSON.stringify([c,u,d,name]);
+          if(!people[key])people[key]=[d,name,0,0,0,0];
+          people[key][mapping[1]]+=score;
+        }
+      }
+      if(type==='public'||type==='publicClass'){
+        const name=String(obj.reporterName||'').trim();
+        const temple=String(obj.temple||'').trim();
+        if(name&&temple){
+          const key=JSON.stringify([c,u,d,name,temple]);
+          if(!publicPeople[key])publicPeople[key]=[d,name,temple,0,0];
+          publicPeople[key][type==='public'?3:4]+=score;
+        }
+      }
     });
   });
   const sort=(a,b)=>{
@@ -1412,7 +1416,8 @@ function settlementRows_(){
     return 0;
   };
   return {regional:Object.keys(regions).map(k=>regions[k]).sort(sort).map(row=>[row[0]].concat(row.slice(3))),
-    personal:Object.keys(people).map(k=>people[k]).sort(sort).map(row=>row.slice(2)),
+    personal:Object.keys(people).map(k=>people[k]).sort(sort),
+    publicPeople:Object.keys(publicPeople).map(k=>publicPeople[k]).sort(sort),
     pendingCount:Object.values(pending).reduce((n,v)=>n+v,0),
     missingIndex:Object.keys(seenIds).filter(id=>!states[id]).length,stamp};
 }
@@ -1433,6 +1438,12 @@ const PREVIOUS_V2_PERSON_HEADERS=['國別','單位','區域','姓名','角色',
   '個人渡眾人數','個人成全進階班回報筆數','成全安堂完成筆數',
   '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
   '公堂進階班達標人數（回報人記錄）','有效相關回報筆數','結算時間'];
+// Current and two earlier generated versions of 個人成績結算 may be safely
+// upgraded, but only if their headers are exactly known.
+const PREVIOUS_V3_PERSON_HEADERS=['區域','姓名','角色',
+  '個人渡眾人數','個人成全進階班回報筆數','成全安堂完成筆數',
+  '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
+  '公堂進階班達標人數（回報人記錄）','有效相關回報筆數','結算時間'];
 function settlementSchema_(ss,title,expected){
   const sh=ss.getSheetByName(title);
   if(!sh)return {sheet:null,upgrade:false};
@@ -1443,7 +1454,8 @@ function settlementSchema_(ss,title,expected){
   if(matches(expected))return {sheet:sh,upgrade:false};
   const legacy=title==='區域成績結算'?
     [PREVIOUS_V2_REGION_HEADERS,PREVIOUS_REGION_HEADERS]:
-    [PREVIOUS_V2_PERSON_HEADERS,PREVIOUS_PERSON_HEADERS];
+    title==='個人成績結算'?
+    [PREVIOUS_V3_PERSON_HEADERS,PREVIOUS_V2_PERSON_HEADERS,PREVIOUS_PERSON_HEADERS]:[];
   if(legacy.some(headers=>matches(headers)))return {sheet:sh,upgrade:true};
   throw new Error('「'+title+'」表頭不符合目前或前一版結算格式，為保護資料停止更新');
 }
@@ -1477,20 +1489,21 @@ function recalculateScores(options){
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   try{
     const ss=sheet_(),data=settlementRows_();
-    // 先驗證兩個結算分頁，確保非系統資料不會被覆寫。
+    // 預先驗證三個目標表，避免錯誤覆蓋使用者自建的其他分頁。
     const personalSchema=settlementSchema_(ss,'個人成績結算',SETTLEMENT_PERSON_HEADERS);
+    const publicSchema=settlementSchema_(ss,'公堂成績結算',SETTLEMENT_PUBLIC_HEADERS);
     const regionSchema=settlementSchema_(ss,'區域成績結算',SETTLEMENT_REGION_HEADERS);
-    // 升級既有衍生表前保留快照，不影響原始成績與照片。
     if(personalSchema.upgrade)backupSettlementBeforeUpgrade_(personalSchema.sheet);
     if(regionSchema.upgrade)backupSettlementBeforeUpgrade_(regionSchema.sheet);
     settlementSheet_(ss,'個人成績結算',SETTLEMENT_PERSON_HEADERS,data.personal,personalSchema);
+    settlementSheet_(ss,'公堂成績結算',SETTLEMENT_PUBLIC_HEADERS,data.publicPeople,publicSchema);
     settlementSheet_(ss,'區域成績結算',SETTLEMENT_REGION_HEADERS,data.regional,regionSchema);
     if(!options||!options.silent)
       auditSheet_().appendRow([new Date(),'settlement_refresh','','',admin,'',JSON.stringify({
-        people:data.personal.length,regions:data.regional.length,pending:data.pendingCount,
+        people:data.personal.length,publicPeople:data.publicPeople.length,regions:data.regional.length,pending:data.pendingCount,
         legacyWithoutIndex:data.missingIndex
       }),'重新結算個人與區域成績；原始紀錄未更動']);
-    return {ok:true,personalRows:data.personal.length,regionalRows:data.regional.length,
+    return {ok:true,personalRows:data.personal.length,publicRows:data.publicPeople.length,regionalRows:data.regional.length,
       pendingCount:data.pendingCount,missingIndex:data.missingIndex,updatedAt:data.stamp};
   }finally{lock.releaseLock();}
 }
@@ -1498,17 +1511,17 @@ function adminRecalculateScoresPrompt(){
   requireAdmin_();
   const ui=SpreadsheetApp.getUi();
   const yes=ui.alert('重新結算成績',
-    '將建立／更新「個人成績結算」及「區域成績結算」兩個衍生分頁。已核准取消的回報不計入；未完成審核的申請仍以目前原始成績統計。原始成績、照片、索引不會刪除。確定嗎？',
+    '將建立／更新「個人成績結算」、「公堂成績結算」及「區域成績結算」三個衍生分頁。已核准取消的回報不計入；未完成審核的申請仍以目前原始成績統計。原始成績、照片、索引不會刪除。確定嗎？',
     ui.ButtonSet.YES_NO);
   if(yes!==ui.Button.YES)return {ok:false,cancelled:true};
   try{
     const result=recalculateScores();
     ui.alert('結算完成',
-      '個人角色明細：'+result.personalRows+' 列\n區域：'+result.regionalRows+
+      '個人成績：'+result.personalRows+' 列\n公堂成績：'+result.publicRows+' 列\n區域：'+result.regionalRows+
       ' 區\n待審核申請：'+result.pendingCount+
       ' 筆\n無索引舊回報：'+result.missingIndex+
       ' 筆\n更新：'+result.updatedAt+
-      '\n\n請至「個人成績結算」及「區域成績結算」查看。',
+      '\n\n請至「個人成績結算」、「公堂成績結算」及「區域成績結算」查看。',
       ui.ButtonSet.OK);
     return result;
   }catch(err){
@@ -1546,7 +1559,7 @@ function adminInstallAutoSettlementPrompt(){
   requireAdmin_();
   const ui=SpreadsheetApp.getUi();
   const choice=ui.alert('啟用自動成績結算',
-    '將授權 Apps Script 每5分鐘重新計算「個人成績結算」和「區域成績結算」，無須手動按重新結算。首次啟用會先執行結算。\n不會更動原始成績或照片。\n確定啟用嗎？',
+    '將授權 Apps Script 每5分鐘重新計算「個人成績結算」、「公堂成績結算」和「區域成績結算」，無須手動按重新結算。首次啟用會先執行結算。\n不會更動原始成績或照片。\n確定啟用嗎？',
     ui.ButtonSet.YES_NO);
   if(choice!==ui.Button.YES)return {ok:false,cancelled:true};
   try{
