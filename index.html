@@ -59,109 +59,6 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
   </div>
 </div></section><footer>寶光崇正 · 2027</footer></main>
 <script>
-const LOOKUP_KEYS={country:'國家',unit:'單位',district:'區域',guide:'引師姓名',reporterName:'回報人姓名',temple:'佛堂／公堂堂號',host:'壇主姓名',mentor:'成全者姓名',student:'班員姓名',classType:'進階班類別',eventDate:'日期',count:'人數',session:'上課次數'};
-let foundReport=null,changeMode='modify';
-function switchPanel(target){
-  const look=target==='lookup';
-  el('reportPanel').classList.toggle('hidden',look);
-  el('lookupPanel').classList.toggle('hidden',!look);
-  el('tabReport').setAttribute('aria-selected',String(!look));
-  el('tabLookup').setAttribute('aria-selected',String(look));
-}
-el('tabReport').addEventListener('click',()=>switchPanel('report'));
-el('tabLookup').addEventListener('click',()=>switchPanel('lookup'));
-async function apiPost(body){
-  const r=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)});
-  const data=await r.json();
-  if(!data.ok)throw new Error(data.error||'操作失敗');
-  return data;
-}
-function statusMessage(id,msg,error=false){
-  const node=el(id);node.className='status'+(error?' error':' success');node.textContent=msg;
-}
-function renderLookup(data){
-  foundReport=data;
-  el('lookupResult').classList.remove('hidden');el('changeForm').classList.add('hidden');
-  const info=el('lookupSummary');info.replaceChildren();
-  const h=document.createElement('h3');h.textContent='回報資料';h.style.margin='0 0 8px';info.append(h);
-  const badge=document.createElement('span');badge.className='readonly-tag';badge.textContent='狀態：'+data.status;info.append(badge);
-  const list=document.createElement('div');list.className='summary-list';
-  const items=[['回報編號',data.id],['回報類別',el('type').querySelector('option[value="'+data.type+'"]')?.textContent||data.type]];
-  for(const key of TYPES[data.type]||[])if(key!=='files')items.push([LOOKUP_KEYS[key]||key,data.fields[key]]);
-  items.push(['照片',data.photoCount+' 張（為保護個資，此頁不公開照片內容）']);
-  for(const [label,value] of items){
-    const row=document.createElement('div');row.className='summary-item';
-    const small=document.createElement('small');small.textContent=label;
-    const strong=document.createElement('strong');strong.textContent=String(value||'');
-    row.append(small,strong);list.append(row);
-  }
-  info.append(list);
-  const unavailable=data.hasPendingRequest||data.status==='已取消';
-  el('openModify').disabled=unavailable;el('openCancel').disabled=unavailable;
-  if(data.hasPendingRequest){const n=document.createElement('p');n.className='muted-note';n.textContent='此筆回報已有待審核申請，處理完畢前不能重複申請。';info.append(n);}
-}
-el('lookupForm').addEventListener('submit',async e=>{
-  e.preventDefault();foundReport=null;el('lookupResult').classList.add('hidden');
-  const button=el('lookupSubmit');button.disabled=true;button.textContent='查詢中…';
-  try{
-    const data=await apiPost({action:'lookup',id:el('lookupId').value.trim(),lookupPassword:el('lookupPassword').value});
-    renderLookup(data);statusMessage('lookupStatus','查詢成功。請核對資料，若有錯誤可提出修改或取消申請。');
-  }catch(err){statusMessage('lookupStatus',err.message,true);}
-  finally{button.disabled=false;button.textContent='查詢回報';}
-});
-function createEditField(key,value){
-  const outer=document.createElement('div');outer.className='field';
-  const label=document.createElement('label');label.htmlFor='edit-'+key;label.textContent=LOOKUP_KEYS[key]||key;outer.append(label);
-  let input;
-  if(['country','unit','district','classType','session'].includes(key)){
-    input=document.createElement('select');const set=new Set();
-    if(key==='country')options.forEach(x=>set.add(x.country));
-    if(key==='unit')options.filter(x=>x.country===(foundReport.fields.country)).forEach(x=>set.add(x.unit));
-    if(key==='district')options.filter(x=>x.country===foundReport.fields.country&&x.unit===foundReport.fields.unit).forEach(x=>set.add(x.district));
-    if(key==='classType')['禮行','義理','仁德'].forEach(x=>set.add(x));
-    if(key==='session')for(let i=1;i<=24;i++)set.add(String(i));
-    set.add(String(value));
-    [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh-Hant')).forEach(x=>input.add(new Option(x,x)));
-  }else{
-    input=document.createElement('input');
-    input.type=key==='eventDate'?'date':key==='count'?'number':'text';
-    if(key==='count'){input.min='0';input.step='1';}
-    if(key==='eventDate'){input.min='1000-01-01';input.max='9999-12-31';}
-    input.value=String(value||'');
-  }
-  input.id='edit-'+key;input.name=key;input.required=true;
-  if(input.tagName==='SELECT')input.value=String(value||'');
-  outer.append(input);return outer;
-}
-function openChangeForm(mode){
-  if(!foundReport||foundReport.hasPendingRequest||foundReport.status==='已取消')return;
-  changeMode=mode;el('changeForm').classList.remove('hidden');
-  el('changeHeading').textContent=mode==='cancel'?'申請取消此筆回報':'申請修改回報資料';
-  const area=el('editableFields');area.replaceChildren();
-  if(mode==='modify')for(const key of TYPES[foundReport.type].filter(k=>k!=='files'))area.append(createEditField(key,foundReport.fields[key]));
-  el('changeReason').value='';
-  el('sendChange').textContent=mode==='cancel'?'送出取消申請':'送出修改申請';
-}
-el('openModify').addEventListener('click',()=>openChangeForm('modify'));
-el('openCancel').addEventListener('click',()=>openChangeForm('cancel'));
-el('closeChange').addEventListener('click',()=>el('changeForm').classList.add('hidden'));
-el('changeForm').addEventListener('submit',async e=>{
-  e.preventDefault();if(!foundReport)return;
-  const changes={};
-  if(changeMode==='modify')for(const key of TYPES[foundReport.type].filter(k=>k!=='files')){
-    const value=el('edit-'+key).value.trim();
-    if(value!==String(foundReport.fields[key]||''))changes[key]=value;
-  }
-  if(changeMode==='modify'&&!Object.keys(changes).length){statusMessage('lookupStatus','尚未修改任何欄位。',true);return;}
-  if(!confirm(changeMode==='cancel'?'確定送出取消申請？核准後不會刪除原始紀錄。':'確定送出修改申請？管理員核准前不會改動原始資料。'))return;
-  const button=el('sendChange');button.disabled=true;
-  try{
-    const result=await apiPost({action:'changeRequest',id:el('lookupId').value.trim(),lookupPassword:el('lookupPassword').value,
-      version:foundReport.version,changeType:changeMode,changes,reason:el('changeReason').value});
-    foundReport.hasPendingRequest=true;renderLookup(foundReport);
-    statusMessage('lookupStatus','申請已送出，狀態：待審核。申請編號：'+result.requestId);
-  }catch(err){statusMessage('lookupStatus',err.message,true);button.disabled=false;}
-});
 const API_URL = 'https://script.google.com/macros/s/AKfycbwrWACdDY07XimYM2Ul-dkIw8KeySVDnetLK4GKm7u0Dw8_-YPSY95uVO8QhhfySNh-/exec';
 const TYPES = {
   personal:['country','unit','district','guide','eventDate','count','files'],
@@ -375,4 +272,108 @@ form.addEventListener('submit',async e=>{
 if(!API_URL.startsWith('https://')){el('status').className='status error';el('status').textContent='尚未設定 Apps Script 網址。';}
 else loadOptions();
 updateProgress();
+
+const LOOKUP_KEYS={country:'國家',unit:'單位',district:'區域',guide:'引師姓名',reporterName:'回報人姓名',temple:'佛堂／公堂堂號',host:'壇主姓名',mentor:'成全者姓名',student:'班員姓名',classType:'進階班類別',eventDate:'日期',count:'人數',session:'上課次數'};
+let foundReport=null,changeMode='modify';
+function switchPanel(target){
+  const look=target==='lookup';
+  el('reportPanel').classList.toggle('hidden',look);
+  el('lookupPanel').classList.toggle('hidden',!look);
+  el('tabReport').setAttribute('aria-selected',String(!look));
+  el('tabLookup').setAttribute('aria-selected',String(look));
+}
+el('tabReport').addEventListener('click',()=>switchPanel('report'));
+el('tabLookup').addEventListener('click',()=>switchPanel('lookup'));
+async function apiPost(body){
+  const r=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)});
+  const data=await r.json();
+  if(!data.ok)throw new Error(data.error||'操作失敗');
+  return data;
+}
+function statusMessage(id,msg,error=false){
+  const node=el(id);node.className='status'+(error?' error':' success');node.textContent=msg;
+}
+function renderLookup(data){
+  foundReport=data;
+  el('lookupResult').classList.remove('hidden');el('changeForm').classList.add('hidden');
+  const info=el('lookupSummary');info.replaceChildren();
+  const h=document.createElement('h3');h.textContent='回報資料';h.style.margin='0 0 8px';info.append(h);
+  const badge=document.createElement('span');badge.className='readonly-tag';badge.textContent='狀態：'+data.status;info.append(badge);
+  const list=document.createElement('div');list.className='summary-list';
+  const items=[['回報編號',data.id],['回報類別',el('type').querySelector('option[value="'+data.type+'"]')?.textContent||data.type]];
+  for(const key of TYPES[data.type]||[])if(key!=='files')items.push([LOOKUP_KEYS[key]||key,data.fields[key]]);
+  items.push(['照片',data.photoCount+' 張（為保護個資，此頁不公開照片內容）']);
+  for(const [label,value] of items){
+    const row=document.createElement('div');row.className='summary-item';
+    const small=document.createElement('small');small.textContent=label;
+    const strong=document.createElement('strong');strong.textContent=String(value||'');
+    row.append(small,strong);list.append(row);
+  }
+  info.append(list);
+  const unavailable=data.hasPendingRequest||data.status==='已取消';
+  el('openModify').disabled=unavailable;el('openCancel').disabled=unavailable;
+  if(data.hasPendingRequest){const n=document.createElement('p');n.className='muted-note';n.textContent='此筆回報已有待審核申請，處理完畢前不能重複申請。';info.append(n);}
+}
+el('lookupForm').addEventListener('submit',async e=>{
+  e.preventDefault();foundReport=null;el('lookupResult').classList.add('hidden');
+  const button=el('lookupSubmit');button.disabled=true;button.textContent='查詢中…';
+  try{
+    const data=await apiPost({action:'lookup',id:el('lookupId').value.trim(),lookupPassword:el('lookupPassword').value});
+    renderLookup(data);statusMessage('lookupStatus','查詢成功。請核對資料，若有錯誤可提出修改或取消申請。');
+  }catch(err){statusMessage('lookupStatus',err.message,true);}
+  finally{button.disabled=false;button.textContent='查詢回報';}
+});
+function createEditField(key,value){
+  const outer=document.createElement('div');outer.className='field';
+  const label=document.createElement('label');label.htmlFor='edit-'+key;label.textContent=LOOKUP_KEYS[key]||key;outer.append(label);
+  let input;
+  if(['country','unit','district','classType','session'].includes(key)){
+    input=document.createElement('select');const set=new Set();
+    if(key==='country')options.forEach(x=>set.add(x.country));
+    if(key==='unit')options.filter(x=>x.country===(foundReport.fields.country)).forEach(x=>set.add(x.unit));
+    if(key==='district')options.filter(x=>x.country===foundReport.fields.country&&x.unit===foundReport.fields.unit).forEach(x=>set.add(x.district));
+    if(key==='classType')['禮行','義理','仁德'].forEach(x=>set.add(x));
+    if(key==='session')for(let i=1;i<=24;i++)set.add(String(i));
+    set.add(String(value));
+    [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh-Hant')).forEach(x=>input.add(new Option(x,x)));
+  }else{
+    input=document.createElement('input');
+    input.type=key==='eventDate'?'date':key==='count'?'number':'text';
+    if(key==='count'){input.min='0';input.step='1';}
+    if(key==='eventDate'){input.min='1000-01-01';input.max='9999-12-31';}
+    input.value=String(value||'');
+  }
+  input.id='edit-'+key;input.name=key;input.required=true;
+  if(input.tagName==='SELECT')input.value=String(value||'');
+  outer.append(input);return outer;
+}
+function openChangeForm(mode){
+  if(!foundReport||foundReport.hasPendingRequest||foundReport.status==='已取消')return;
+  changeMode=mode;el('changeForm').classList.remove('hidden');
+  el('changeHeading').textContent=mode==='cancel'?'申請取消此筆回報':'申請修改回報資料';
+  const area=el('editableFields');area.replaceChildren();
+  if(mode==='modify')for(const key of TYPES[foundReport.type].filter(k=>k!=='files'))area.append(createEditField(key,foundReport.fields[key]));
+  el('changeReason').value='';
+  el('sendChange').textContent=mode==='cancel'?'送出取消申請':'送出修改申請';
+}
+el('openModify').addEventListener('click',()=>openChangeForm('modify'));
+el('openCancel').addEventListener('click',()=>openChangeForm('cancel'));
+el('closeChange').addEventListener('click',()=>el('changeForm').classList.add('hidden'));
+el('changeForm').addEventListener('submit',async e=>{
+  e.preventDefault();if(!foundReport)return;
+  const changes={};
+  if(changeMode==='modify')for(const key of TYPES[foundReport.type].filter(k=>k!=='files')){
+    const value=el('edit-'+key).value.trim();
+    if(value!==String(foundReport.fields[key]||''))changes[key]=value;
+  }
+  if(changeMode==='modify'&&!Object.keys(changes).length){statusMessage('lookupStatus','尚未修改任何欄位。',true);return;}
+  if(!confirm(changeMode==='cancel'?'確定送出取消申請？核准後不會刪除原始紀錄。':'確定送出修改申請？管理員核准前不會改動原始資料。'))return;
+  const button=el('sendChange');button.disabled=true;
+  try{
+    const result=await apiPost({action:'changeRequest',id:el('lookupId').value.trim(),lookupPassword:el('lookupPassword').value,
+      version:foundReport.version,changeType:changeMode,changes,reason:el('changeReason').value});
+    foundReport.hasPendingRequest=true;renderLookup(foundReport);
+    statusMessage('lookupStatus','申請已送出，狀態：待審核。申請編號：'+result.requestId);
+  }catch(err){statusMessage('lookupStatus',err.message,true);button.disabled=false;}
+});
 </script></body></html>
