@@ -768,3 +768,132 @@ function resetLookupPasswordSelected(){
     throw err;
   }
 }
+
+
+/**
+ * 區域負責人專用「獨立唯讀檢視表」
+ * 僅管理員可建立、同步。請只將產生的新表分享給授權區域負責人，設成檢視者。
+ * 絕不可分享原始六類回報＋回報索引等管理工作表。
+ * 不含查詢密碼、密碼雜湊、憑證鹽、照片網址及管理稽核內容。
+ */
+const REGION_VIEW_MARKER='BY2027_REGION_VIEW_V1__DO_NOT_EDIT';
+const REGION_VIEW_TYPES=['personal','family','public','personalClass','publicClass','temple'];
+const REGION_VIEW_SUMMARY_HEADERS=['國別','單位','區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
+  '個人成全進階班回報筆數','公堂進階班達標班員人數','完成安堂筆數','有效回報總筆數'];
+const REGION_VIEW_DETAIL_HEADERS=['回報編號','送出時間','回報類別','國別','單位','區域','狀態',
+  '人數／達標數','班別','上課次數','日期','引師姓名','回報人姓名','佛堂／公堂堂號',
+  '壇主姓名','成全者姓名','班員姓名','照片張數'];
+function regionViewCell_(value){
+  if(value===undefined||value===null)return '';
+  const str=value instanceof Date?Utilities.formatDate(value,'Asia/Taipei','yyyy/MM/dd HH:mm:ss'):String(value);
+  // 防止以使用者姓名等輸入方式把公式注入共用檢視表。
+  return /^[=+\-@\t\r]/.test(str)?"'"+str:str;
+}
+function regionViewData_(){
+  const source=sheet_();
+  const index=source.getSheetByName('回報索引');
+  const states={};
+  if(index&&index.getLastRow()>1){
+    const values=index.getRange(2,1,index.getLastRow()-1,6).getValues();
+    values.forEach(row=>{if(row[0])states[String(row[0])]=String(row[4]||'已回報');});
+  }
+  const groups={},details=[];
+  REGION_VIEW_TYPES.forEach(type=>{
+    const spec=TYPES[type],tab=source.getSheetByName(spec.sheet);
+    if(!tab||tab.getLastRow()<2)return;
+    // 嚴格比對表頭，避免舊版欄位錯位，或把管理員私密欄位輸出。
+    const cols=headersFor_(type);
+    const actual=tab.getRange(1,1,1,cols.length).getDisplayValues()[0];
+    if(cols.some((label,i)=>label!==actual[i]))
+      throw new Error('「'+spec.sheet+'」欄位尚未升級完成；停止同步區域資料，避免錯置');
+    const rows=tab.getRange(2,1,tab.getLastRow()-1,cols.length).getValues();
+    rows.forEach(row=>{
+      if(!row[0])return;
+      const obj={};
+      spec.fields.forEach((field,i)=>obj[field]=row[i+3]);
+      const id=String(row[0]),status=states[id]||'舊版未建立查詢憑證';
+      const country=String(obj.country||''),unit=String(obj.unit||''),district=String(obj.district||'');
+      if(!country||!unit||!district)throw new Error('回報 '+id+' 缺少區域欄，停止同步');
+      const count=Number(obj.count||0);
+      const photoLinks=spec.photo?String(row[row.length-1]||'').split('\n').filter(Boolean):[];
+      details.push([
+        id,row[1],spec.sheet,country,unit,district,status,
+        spec.fields.includes('count')?count:'',
+        obj.classType||'',obj.session||'',obj.eventDate||'',
+        obj.guide||'',obj.reporterName||'',obj.temple||'',obj.host||'',
+        obj.mentor||'',obj.student||'',photoLinks.length
+      ].map(regionViewCell_));
+      if(status==='已取消')return; // 取消保留明細，但不列入有效成績
+      const key=JSON.stringify([country,unit,district]);
+      if(!groups[key])groups[key]=[country,unit,district,0,0,0,0,0,0,0];
+      const sum=groups[key];
+      const metric={personal:3,family:4,public:5,personalClass:6,publicClass:7,temple:8}[type];
+      sum[metric]+=['personalClass','temple'].includes(type)?1:count;
+      sum[9]+=1;
+    });
+  });
+  const byLocation=(a,b)=>[0,1,2].map(i=>String(a[i]).localeCompare(String(b[i]),'zh-Hant')).find(n=>n!==0)||0;
+  details.sort((a,b)=>byLocation([a[3],a[4],a[5]],[b[3],b[4],b[5]])||
+    String(a[1]).localeCompare(String(b[1])));
+  return {summary:Object.keys(groups).map(k=>groups[k]).sort(byLocation),details};
+}
+function regionViewSpreadsheet_(){
+  const id=PropertiesService.getScriptProperties().getProperty('REGION_VIEW_SHEET_ID');
+  if(!id)throw new Error('尚未建立區域負責人檢視表；請管理員先執行 createRegionViewSpreadsheet()');
+  const ss=SpreadsheetApp.openById(id);
+  const meta=ss.getSheetByName('檢視說明');
+  if(!meta||meta.getRange('A1').getDisplayValue()!==REGION_VIEW_MARKER)
+    throw new Error('目標不是系統建立的區域檢視表，拒絕覆寫，請核對 REGION_VIEW_SHEET_ID');
+  return ss;
+}
+function regionViewWrite_(ss,name,header,rows){
+  let sh=ss.getSheetByName(name);
+  if(!sh)sh=ss.insertSheet(name);
+  const width=header.length,count=rows.length+1;
+  if(sh.getMaxColumns()<width)sh.insertColumnsAfter(sh.getMaxColumns(),width-sh.getMaxColumns());
+  if(sh.getMaxRows()<count)sh.insertRowsAfter(sh.getMaxRows(),count-sh.getMaxRows());
+  // 僅更新專用檢視工作表，不清除原始成績及其他人的資料。
+  sh.getRange(1,1,sh.getMaxRows(),width).clearContent();
+  sh.getRange(1,1,1,width).setValues([header]);
+  if(rows.length)sh.getRange(2,1,rows.length,width).setValues(rows);
+  sh.setFrozenRows(1);
+  sh.getRange(1,1,1,width).setFontWeight('bold').setBackground('#e3f0e7');
+  if(!sh.getFilter())sh.getRange(1,1,sh.getMaxRows(),width).createFilter();
+}
+function createRegionViewSpreadsheet(){
+  const actor=requireAdmin_();
+  const props=PropertiesService.getScriptProperties();
+  if(props.getProperty('REGION_VIEW_SHEET_ID'))
+    throw new Error('已設定 REGION_VIEW_SHEET_ID；為防止重複建立，請改執行 refreshRegionViewSpreadsheet()');
+  // 先讀完資料並完成欄位檢查，才建立新檔。
+  const data=regionViewData_();
+  const view=SpreadsheetApp.create('白陽慈航2027｜區域負責人唯讀成績檢視');
+  const meta=view.getSheets()[0];meta.setName('檢視說明');
+  meta.getRange('A1').setValue(REGION_VIEW_MARKER);
+  meta.getRange('A2').setValue('此表只供授權區域負責人檢視，請勿對外公開或與原始回報共用權限。');
+  meta.getRange('A3').setValue('資料以原始回報工作表為準；已取消回報會保留明細但不計入彙整。');
+  meta.getRange('A4').setValue('本表不含查詢密碼、密碼雜湊、照片網址或稽核紀錄；仍含姓名等回報資料，請限制讀取權限。');
+  meta.getRange('A5').setValue('日期與人數類型不可直接跨類加總：各彙整欄的單位依欄名判讀。');
+  regionViewWrite_(view,'區域彙整',REGION_VIEW_SUMMARY_HEADERS,data.summary);
+  regionViewWrite_(view,'回報明細',REGION_VIEW_DETAIL_HEADERS,data.details);
+  meta.getRange('A6').setValue('上次更新：'+Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss'));
+  props.setProperty('REGION_VIEW_SHEET_ID',view.getId());
+  auditSheet_().appendRow([new Date(),'region_view_create','','',actor,'',JSON.stringify({
+    summaryRows:data.summary.length,detailRows:data.details.length
+  }),'建立專用唯讀檢視表；分享權限須由管理員另行設定']);
+  Logger.log('區域負責人檢視表已建立（尚未分享）：'+view.getUrl());
+  return {url:view.getUrl(),summaryRows:data.summary.length,detailRows:data.details.length};
+}
+function refreshRegionViewSpreadsheet(){
+  const actor=requireAdmin_();
+  const data=regionViewData_();
+  const view=regionViewSpreadsheet_();
+  regionViewWrite_(view,'區域彙整',REGION_VIEW_SUMMARY_HEADERS,data.summary);
+  regionViewWrite_(view,'回報明細',REGION_VIEW_DETAIL_HEADERS,data.details);
+  view.getSheetByName('檢視說明').getRange('A6').setValue(
+    '上次更新：'+Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss'));
+  auditSheet_().appendRow([new Date(),'region_view_refresh','','',actor,'',JSON.stringify({
+    summaryRows:data.summary.length,detailRows:data.details.length
+  }),'管理員同步區域檢視表']);
+  return {url:view.getUrl(),summaryRows:data.summary.length,detailRows:data.details.length};
+}
