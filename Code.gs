@@ -1526,16 +1526,16 @@ function adminRecalculateScoresPrompt(){
 function installAutoSettlement(){
   requireAdmin_();
   const props=PropertiesService.getScriptProperties();
-  const lock=LockService.getScriptLock();lock.waitLock(30000);
-  try{
-    const active=ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction()==='autoRecalculateScores_');
+  // recalculateScores() already acquires ScriptLock; avoid nesting the same lock.
+  const active=ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction()==='autoRecalculateScores_');
+  {
     if(active.length)return {ok:true,created:false,count:active.length,message:'已存在自動結算排程，無須重複建立'};
     // First calculate and validate both tables, then create a trigger.
     recalculateScores({silent:true});
     ScriptApp.newTrigger('autoRecalculateScores_').timeBased().everyMinutes(5).create();
     props.setProperty('AUTO_SETTLEMENT_INTERVAL_MIN','5');
     return {ok:true,created:true,count:1,message:'已啟用每5分鐘自動更新個人／區域成績'};
-  }finally{lock.releaseLock();}
+  }
 }
 function autoRecalculateScores_(){
   // Scheduled handler, not a public web action. Any failure surfaces in Apps
