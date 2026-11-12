@@ -7,6 +7,38 @@
 > [!NOTE]
 > **2026/11/12 最新欄位規則**：每種回報工作表只保留該類表單會出現的欄位，按照實際填寫順序排列；後端另保留「回報編號、送出時間、回報類別」三個追蹤欄位。需要照片的類別才會有「照片連結」欄。**舊版工作表不得直接與新版資料混寫**，請先備份並執行 `migrateReportSheets()`。
 
+## 緊急排錯｜2026/11/12 09:01:45（台灣時間）｜Google Drive 尚未授權
+
+**使用者實測錯誤**：照片上傳時，網頁顯示「你沒有呼叫 `DriveApp.getFolderById` 的權限」，並列出缺少 `https://www.googleapis.com/auth/drive.readonly` 或 `https://www.googleapis.com/auth/drive` 的授權範圍。
+
+**原因**：Google Apps Script 在程式新增 Drive 服務存取後，執行身分必須先通過 Google OAuth 授權。從公開 GitHub Pages 提交表單**不會替管理員開啟授權畫面**。此錯誤不等於資料夾不存在，也不代表照片已被刪除；同時仍需確認執行身分能在指定 Drive 資料夾建立檔案。
+
+**本次程式修改**（僅 `Code.gs`）：
+
+1. 加入 `authorizeServices()`，供**管理員在 Apps Script 編輯器手動執行**，讀取試算表名稱、Drive 資料夾名稱並寫入 Logger，**不建立／刪除檔案，不修改成績**。
+2. `storePhotos_()` 遇到 Drive 權限或 OAuth 未授權時，回傳更清楚的錯誤提示，指引管理員執行 `authorizeServices()`；其他 Drive 錯誤仍會顯示原始原因。
+3. 不修改六類回報表單與工作表欄位、不修改 Google Drive 現有照片、不修改查詢／審核規則。
+
+**管理員操作步驟（必須本人執行）**
+
+1. 到 [Apps Script](https://script.google.com/home) 開啟**目前使用中的原始專案**。
+2. 將 GitHub 最新 [`Code.gs`](https://github.com/chy0205/ikt1114/blob/main/Code.gs) 同步到 Apps Script，儲存。
+3. 在上方「函式」下拉選單選 **`authorizeServices`**，點「執行」。
+4. 若跳出授權提示，選擇正確的 Google 帳號，檢查權限要求後依 Google 指示授權 Google 試算表和 Drive。授權必須使用**網頁應用程式實際執行身分**，不能由其他人代替。
+5. 執行記錄若顯示「已取得試算表與 Google Drive 資料夾的存取權」，代表此帳號可讀取目標資源。請額外確認帳號對目標資料夾有**建立檔案的編輯權限**；此函式不會測試寫入。
+6. 開啟「部署」→「管理部署作業」→「編輯」，選擇**新版本**並重新部署原網頁應用程式；確認部署的「執行身分」符合預期。公開填報通常應以**已授權的部署者／擁有者身分**執行，而不是要求每位填報者授權 Drive。
+7. 先使用不含真實個資的照片測試上傳；核對 Google Drive 確實新增檔案、對應成績分頁新增一列及「回報索引」有憑證紀錄，再對外恢復使用。
+
+**若仍失敗**：檢查 Apps Script 左側「專案設定」的 `appsscript.json` 是否手動設定 `oauthScopes`。如果有，必須包含適合本專案的 Drive 寫入 scope `https://www.googleapis.com/auth/drive` 與 Sheets 存取 scope `https://www.googleapis.com/auth/spreadsheets`；若沒有手動限定 scope，Apps Script 一般會自動偵測。亦應檢查 Google Workspace 管理員政策、Drive 資料夾是否共用且可編輯。**不要隨意把資料夾改成公開共用來解決授權問題。**
+
+**資料安全**：這次照片錯誤出現在回報列 `appendRow` 之前，當次提交通常尚未建立新的回報列；但在重新提交前仍需核對實際試算表與 Drive，以免先前其他提交成功而重複回報。
+
+**驗證狀態**：本次僅完成 GitHub 程式修改及 JavaScript 語法檢查；OAuth 授權、Drive 寫入與正式部署仍需實際管理者操作。不能宣稱已恢復正常上傳。
+
+**提交紀錄**：[885231d](https://github.com/chy0205/ikt1114/commit/885231d5a3be2daae90122bd146260712eecbd39) — 2026/11/12 09:01:45（Asia/Taipei）。
+
+---
+
 ## 緊急修正｜2026/11/12 08:56:47（台灣時間）｜上傳失敗：storePhotos_ is not defined
 
 **使用者回報**：網站在個人渡眾上傳一張照片時，送出提示「回報未確認成功：storePhotos_ is not defined」。已檢查 GitHub 現有後端，發現 `submit_()` 有呼叫 `storePhotos_(p.files||[],id,created)`，但前次新增查詢機制時漏掉了函式定義。
