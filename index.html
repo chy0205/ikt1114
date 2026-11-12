@@ -31,6 +31,13 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
 </style><style>
 .tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:20px}.tab-button{background:#eef5ef;color:#26543b;border:1px solid #ccdfd1;min-height:47px;padding:10px;font-size:15px}.tab-button[aria-selected="true"]{background:#225640;color:white;border-color:#225640}.lookup-card{border:1px solid #d6e4da;border-radius:13px;padding:16px;margin:15px 0;background:#f9fcf9}.lookup-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.lookup-grid .field{margin:0}.mini-button{min-height:42px;padding:8px 12px;font-size:14px}.button-outline{background:white;color:#25533c;border:1px solid #97b5a2}.button-outline:hover:not(:disabled){background:#ecf3ee}.danger-button{background:#a52d39}.danger-button:hover:not(:disabled){background:#8e242e}.button-row{display:flex;gap:10px;flex-wrap:wrap}.button-row button{flex:1}.query-value{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px}.readonly-tag{display:inline-block;border-radius:20px;background:#e6f2e9;color:#21573a;padding:3px 10px;font-size:12px;margin:4px 0}.password-output{overflow-wrap:anywhere;font-family:ui-monospace,monospace;line-height:1.8;padding:12px;background:#eef5ef;border:1px dashed #8bb59a;border-radius:10px}.compact-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.compact-fields .field{margin:0}.muted-note{color:#66776b;font-size:13px}.summary-list{display:grid;gap:7px}.summary-item{padding:9px 0;border-bottom:1px solid #eef1ee}.summary-item small{display:block;color:#6b796e}.summary-item strong{font-size:14px;overflow-wrap:anywhere}@media(max-width:560px){.tabs{grid-template-columns:1fr}.lookup-grid,.compact-fields{grid-template-columns:1fr}.button-row{flex-direction:column}}
 .regional-table{width:100%;border-collapse:collapse;min-width:650px;font-size:13px}.regional-table th,.regional-table td{padding:9px 11px;border-bottom:1px solid #dce6df;text-align:left;white-space:nowrap}.regional-table th{background:#e8f2ea;color:#20543b;position:sticky;top:0}.regional-table tr:nth-child(even){background:#f7faf7}
+.regional-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:12px 0}
+.regional-stat{padding:12px;background:#edf5ef;border-radius:10px;border:1px solid #d8e8dc}
+.regional-stat small{font-size:12px;color:#486b54;display:block}.regional-stat strong{font-size:23px;font-variant-numeric:tabular-nums}
+.regional-bar-item{margin:12px 0}.regional-bar-row{display:flex;gap:8px;justify-content:space-between;font-size:13px}
+.regional-bar-track{height:12px;background:#e3ebe6;border-radius:9px;overflow:hidden;margin-top:5px}
+.regional-bar-fill{background:#337858;height:100%;border-radius:9px;min-width:0}
+@media(max-width:560px){.regional-stat-grid{grid-template-columns:1fr 1fr}}
 </style></head><body><main class="wrap"><header class="hero"><div class="eyebrow">寶光崇正 · 丁未年</div><h1>2027 白陽慈航盛會</h1><p>線上成績回報系統｜手機、電腦皆可使用</p></header><section class="panel"><div class="notice"><strong>回報前請留意</strong>第一梯次結算：2027/05/23 23:59<br>第二梯次結算：2027/11/07 23:59<br>請確認資料正確，並依回報類別上傳必要的驗證照片。</div><div class="tabs" role="tablist" aria-label="系統功能">
 <button type="button" class="tab-button" id="tabReport" role="tab" aria-selected="true" aria-controls="reportPanel">新增成績回報</button>
 <button type="button" class="tab-button" id="tabLookup" role="tab" aria-selected="false" aria-controls="lookupPanel">查詢／申請修改</button>
@@ -81,8 +88,31 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
       <h3 style="margin:0 0 10px">我的授權區域</h3><div id="regionalAreas"></div>
       <p class="muted-note">已取消紀錄可在明細查閱，但不計入彙整；照片連結與密碼均不顯示。</p>
     </div>
+    <div class="lookup-card">
+      <h3 style="margin:0 0 8px">成績統計圖表</h3>
+      <p class="muted-note">下列各類別指標的單位不同（人數、筆數），請勿相互加總。已取消回報不列入統計。</p>
+      <div class="field"><label for="regionalChartArea">統計區域</label><select id="regionalChartArea"><option value="all">全部授權區域</option></select></div>
+      <div id="regionalStatsCards" class="regional-stat-grid"></div>
+      <div id="regionalChartBars" class="regional-chart-bars" role="img" aria-label="區域各類成績長條圖"></div>
+    </div>
     <div class="lookup-card" style="overflow-x:auto"><h3 style="margin:0 0 8px">區域成績彙整</h3><div id="regionalSummary"></div></div>
-    <div class="lookup-card" style="overflow-x:auto"><h3 style="margin:0 0 8px">回報明細</h3><div id="regionalDetails"></div></div>
+    <div class="lookup-card"><h3 style="margin:0 0 8px">回報明細</h3>
+      <div class="compact-fields">
+        <div class="field"><label for="regionalDetailArea">區域篩選</label><select id="regionalDetailArea"><option value="all">全部授權區域</option></select></div>
+        <div class="field"><label for="regionalDetailType">回報類別</label><select id="regionalDetailType"><option value="all">全部類別</option></select></div>
+        <div class="field"><label for="regionalDetailState">回報狀態</label><select id="regionalDetailState"><option value="all">全部狀態</option><option value="已回報">已回報／舊版</option><option value="已取消">已取消</option></select></div>
+        <div class="field"><label for="regionalDetailKeyword">搜尋明細</label><input id="regionalDetailKeyword" placeholder="輸入姓名、堂號、回報編號等" autocomplete="off"></div>
+      </div>
+      <p id="regionalDetailCount" class="muted-note"></p>
+      <div style="overflow-x:auto" id="regionalDetails"></div>
+    </div>
+    <div class="lookup-card">
+      <h3 style="margin:0 0 8px">修改申請進度</h3>
+      <p class="muted-note">僅顯示這組密碼所授權區域的申請，以及管理員公開給申請者的處理說明。</p>
+      <button type="button" id="regionalRequestsRefresh" class="button-outline mini-button">重新整理審核進度</button>
+      <div id="regionalRequestsStatus" class="status" role="status" aria-live="polite"></div>
+      <div style="overflow-x:auto" id="regionalRequestsList"></div>
+    </div>
     <div class="lookup-card">
       <h3 style="margin:0 0 8px">申請修改區域回報</h3>
       <p class="muted-note">先選擇本次查詢中的回報，修改欄位並填寫原因。送出後交由管理員審核，不會立即更動成績。國別、單位、區域及照片不能從此入口修改。</p>
@@ -456,6 +486,83 @@ el('editableFields').addEventListener('change',e=>{
   if(e.target.id==='edit-unit')refreshEditLocation('unit');
 });
 
+let regionalData=null;
+const REGIONAL_METRICS=['個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
+  '個人成全進階班筆數','公堂進階班達標人數','成全安堂筆數'];
+function regionalAreaId_(country,unit,district){return JSON.stringify([country,unit,district]);}
+function regionalSetFilters_(data){
+  const regionSelects=[el('regionalChartArea'),el('regionalDetailArea')];
+  regionSelects.forEach(select=>{
+    select.replaceChildren();select.add(new Option('全部授權區域','all'));
+    data.regions.forEach(a=>select.add(new Option([a.country,a.unit,a.district].join('／'),
+      regionalAreaId_(a.country,a.unit,a.district))));
+  });
+  const typeSelect=el('regionalDetailType');typeSelect.replaceChildren();
+  typeSelect.add(new Option('全部類別','all'));
+  [...new Set(data.details.map(row=>String(row[2])))].sort().forEach(type=>typeSelect.add(new Option(type,type)));
+  el('regionalDetailState').value='all';el('regionalDetailKeyword').value='';
+}
+function renderRegionalChart_(){
+  if(!regionalData)return;
+  const selected=el('regionalChartArea').value;
+  const rows=regionalData.summary.filter(row=>selected==='all'||
+    regionalAreaId_(row[0],row[1],row[2])===selected);
+  const sums=REGIONAL_METRICS.map((_,i)=>rows.reduce((sum,row)=>sum+(Number(row[i+3])||0),0));
+  const cards=el('regionalStatsCards');cards.replaceChildren();
+  REGIONAL_METRICS.forEach((metric,i)=>{
+    const card=document.createElement('div');card.className='regional-stat';
+    const title=document.createElement('small');title.textContent=metric;
+    const value=document.createElement('strong');value.textContent=sums[i].toLocaleString('zh-TW');
+    card.append(title,value);cards.append(card);
+  });
+  const container=el('regionalChartBars');container.replaceChildren();
+  const max=Math.max(...sums,1);
+  REGIONAL_METRICS.forEach((metric,i)=>{
+    const item=document.createElement('div');item.className='regional-bar-item';
+    const top=document.createElement('div');top.className='regional-bar-row';
+    const label=document.createElement('span');label.textContent=metric;
+    const count=document.createElement('strong');count.textContent=String(sums[i]);top.append(label,count);
+    const track=document.createElement('div');track.className='regional-bar-track';
+    const fill=document.createElement('div');fill.className='regional-bar-fill';
+    fill.style.width=(sums[i]/max*100)+'%';track.append(fill);item.append(top,track);container.append(item);
+  });
+  container.setAttribute('aria-label','各類成績：'+REGIONAL_METRICS.map((x,i)=>x+' '+sums[i]).join('；'));
+}
+function renderRegionalDetails_(){
+  if(!regionalData)return;
+  const area=el('regionalDetailArea').value,type=el('regionalDetailType').value,
+    status=el('regionalDetailState').value,keyword=el('regionalDetailKeyword').value.trim().toLowerCase();
+  const results=regionalData.details.filter(row=>{
+    if(area!=='all'&&regionalAreaId_(row[3],row[4],row[5])!==area)return false;
+    if(type!=='all'&&row[2]!==type)return false;
+    if(status==='已取消'&&row[6]!=='已取消')return false;
+    if(status==='已回報'&&row[6]==='已取消')return false;
+    return !keyword||row.some(value=>String(value??'').toLowerCase().includes(keyword));
+  });
+  const shown=results.slice(0,200);
+  el('regionalDetailCount').textContent='符合 '+results.length+' 筆；顯示前 '+shown.length+' 筆'+
+    (results.length>shown.length?'（請縮小篩選範圍）':'');
+  regionalTable_(el('regionalDetails'),regionalData.detailHeaders,shown);
+}
+async function regionalRefreshRequests_(){
+  if(!regionalSessionPassword)return;
+  const button=el('regionalRequestsRefresh');button.disabled=true;
+  try{
+    const result=await apiPost({action:'regionalRequests',regionalPassword:regionalSessionPassword});
+    const headers=['申請時間','申請編號','回報編號','類型','狀態','申請理由','處理時間','審核說明'];
+    const rows=result.requests.map(x=>[x.submittedAt,x.requestId,x.reportId,
+      x.changeType==='cancel'?'取消':'修改',x.status,x.reason,x.handledAt,x.reviewNote]);
+    regionalTable_(el('regionalRequestsList'),headers,rows);
+    statusMessage('regionalRequestsStatus','共 '+result.total+' 筆相關修改申請'+
+      (result.truncated?'，目前顯示最新200筆':'')+'。');
+  }catch(err){statusMessage('regionalRequestsStatus','申請進度載入失敗：'+err.message,true);}
+  finally{button.disabled=false;}
+}
+el('regionalRequestsRefresh').addEventListener('click',regionalRefreshRequests_);
+['regionalChartArea'].forEach(id=>el(id).addEventListener('change',renderRegionalChart_));
+['regionalDetailArea','regionalDetailType','regionalDetailState'].forEach(id=>
+  el(id).addEventListener('change',renderRegionalDetails_));
+el('regionalDetailKeyword').addEventListener('input',renderRegionalDetails_);
 let regionalSessionPassword='';
 let regionalEditingReport=null;
 function regionalEditReset_(){
@@ -554,6 +661,11 @@ function regionalTable_(target,headers,rows){
   table.append(body);target.append(table);
 }
 function regionalClear_(){
+  regionalData=null;
+  el('regionalStatsCards').replaceChildren();
+  el('regionalChartBars').replaceChildren();
+  el('regionalRequestsList').replaceChildren();
+  el('regionalRequestsStatus').textContent='';
   regionalSessionPassword='';
   regionalEditReset_();
   el('regionalReportId').replaceChildren();
@@ -568,6 +680,7 @@ function regionalClear_(){
 el('regionalClear').addEventListener('click',regionalClear_);
 el('regionalForm').addEventListener('submit',async event=>{
   event.preventDefault();
+  regionalData=null;
   regionalSessionPassword='';
   regionalEditReset_();
   el('regionalResults').classList.add('hidden');
@@ -579,18 +692,22 @@ el('regionalForm').addEventListener('submit',async event=>{
       const item=document.createElement('div');item.className='summary-item';
       item.textContent=[x.country,x.unit,x.district].join('／');areas.append(item);
     });
+    regionalData=data;
+    regionalSetFilters_(data);
+    renderRegionalChart_();
     regionalTable_(el('regionalSummary'),data.summaryHeaders,data.summary);
-    regionalTable_(el('regionalDetails'),data.detailHeaders,data.details);
+    renderRegionalDetails_();
     regionalSelectPopulate_(data);
     regionalSessionPassword=el('regionalPassword').value.trim();
     el('regionalEditOpen').disabled=false;
     el('regionalPassword').value='';
     el('regionalResults').classList.remove('hidden');
     statusMessage('regionalStatus','查詢成功。共 '+data.regions.length+' 個授權區域、'+data.details.length+' 筆回報明細。');
+    await regionalRefreshRequests_();
   }catch(err){
     const unsupported=/不支援的操作/.test(err.message);
     statusMessage('regionalStatus',
-      unsupported?'後端尚不認得區域查詢操作，通常是網站連到舊版 Apps Script。請先按「檢查後端部署版本」；'+err.message:err.message,true);
+      unsupported?'後端可能尚未更新至支援區域查詢的版本；請管理員確認 Apps Script 部署。'+err.message:err.message,true);
   }
   finally{btn.disabled=false;btn.textContent='查詢授權區域成績';}
 });
