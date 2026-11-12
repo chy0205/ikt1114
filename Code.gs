@@ -169,12 +169,12 @@ function submit_(p) {
     // 工作表仍保持現有每類專屬欄位；憑證及狀態分開存放在「回報索引」。
     sh.appendRow(rowFor_(p.type,p,id,files));
     try {
-      indexSheet_().appendRow([id,p.type,pass.salt,pass.hash,'待審核',1,new Date(),new Date()]);
+      indexSheet_().appendRow([id,p.type,pass.salt,pass.hash,'已回報',1,new Date(),new Date()]);
     }catch(err){
       // 主表已寫入時不刪除原始資料，必須由管理員執行修復索引。
       throw new Error('成績可能已儲存，但無法建立查詢索引。請勿重複送出，聯絡管理員並提供回報時間。');
     }
-    return {ok:true,id,lookupPassword:pass.password,reviewStatus:'待審核'};
+    return {ok:true,id,lookupPassword:pass.password,reviewStatus:'已回報'};
   } finally {lock.releaseLock();}
 }
 
@@ -414,7 +414,7 @@ function enrollLegacyReport(reportId){
     const matches=Object.keys(TYPES).filter(type=>findReport_(type,reportId));
     if(matches.length!==1)throw new Error('查無唯一對應的歷史回報');
     const secret=issueSecret_(),now=new Date();
-    indexSheet_().appendRow([reportId,matches[0],secret.salt,secret.hash,'待審核',1,now,now]);
+    indexSheet_().appendRow([reportId,matches[0],secret.salt,secret.hash,'已回報',1,now,now]);
     return {id:reportId,lookupPassword:secret.password};
   }finally{lock.releaseLock();}
 }
