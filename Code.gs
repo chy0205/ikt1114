@@ -581,6 +581,7 @@ function onOpen(e){
     .addItem('審核修改／取消申請…','adminReviewPending')
     .addItem('成績、索引與照片健檢…','adminIntegrityCheckPrompt')
     .addItem('重新結算個人與區域成績…','adminRecalculateScoresPrompt')
+    .addItem('啟用每5分鐘自動結算…','adminInstallAutoSettlementPrompt')
     .addSeparator()
     .addItem('核發舊式區域密碼（選用）…','adminIssueRegionalAccessPrompt')
     .addItem('停用區域查詢密碼…','adminRevokeRegionalAccessPrompt')
@@ -1325,10 +1326,10 @@ function adminIntegrityCheckPrompt(){
  * 取消已核准不計入；待審核照原始值計入，另標待審核筆數。
  * 不刪除或改寫六類原始回報、照片、索引與修改申請。
  */
-const SETTLEMENT_REGION_HEADERS=['區域','國別','單位','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
+const SETTLEMENT_REGION_HEADERS=['區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
   '個人成全進階班回報筆數','公堂進階班達標班員人數','成全安堂完成筆數',
   '有效回報筆數','待審核申請筆數','結算時間'];
-const SETTLEMENT_PERSON_HEADERS=['國別','單位','區域','姓名','角色',
+const SETTLEMENT_PERSON_HEADERS=['區域','姓名','角色',
   '個人渡眾人數','個人成全進階班回報筆數','成全安堂完成筆數',
   '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
   '公堂進階班達標人數（回報人記錄）',
@@ -1343,7 +1344,7 @@ const SETTLEMENT_ROLE_FIELDS={
   temple:[['mentor','成全者',7]]
 };
 function settlementRows_(){
-  const ss=sheet_(),regions={},people={},seenIds={};
+  const ss=sheet_(),regions={},people={},seenIds={},districtOwners={};
   const idxSh=ss.getSheetByName('回報索引'),states={};
   if(idxSh&&idxSh.getLastRow()>1){
     idxSh.getRange(2,1,idxSh.getLastRow()-1,6).getValues().forEach(row=>{
@@ -1376,6 +1377,10 @@ function settlementRows_(){
         d=String(obj.district||'').trim();
       if(!c||!u||!d)throw new Error('回報缺少國別、單位或區域，停止結算：'+id);
       const areaKey=JSON.stringify([c,u,d]);
+      // 顯示欄不含國別/單位時，重名區域不應看似只有一個區。
+      if(districtOwners[d]&&districtOwners[d]!==areaKey)
+        throw new Error('「'+d+'」在不同國別或單位重複，無法安全產生不含國別／單位的結算表；請管理員統一區域名稱');
+      districtOwners[d]=areaKey;
       if(!regions[areaKey])regions[areaKey]=[d,c,u,0,0,0,0,0,0,0,0,stamp];
       const area=regions[areaKey];
       if(pending[id])area[10]+=pending[id];
@@ -1406,8 +1411,8 @@ function settlementRows_(){
     }
     return 0;
   };
-  return {regional:Object.keys(regions).map(k=>regions[k]).sort(sort),
-    personal:Object.keys(people).map(k=>people[k]).sort(sort),
+  return {regional:Object.keys(regions).map(k=>regions[k]).sort(sort).map(row=>[row[0]].concat(row.slice(3))),
+    personal:Object.keys(people).map(k=>people[k]).sort(sort).map(row=>row.slice(2)),
     pendingCount:Object.values(pending).reduce((n,v)=>n+v,0),
     missingIndex:Object.keys(seenIds).filter(id=>!states[id]).length,stamp};
 }
@@ -1421,6 +1426,13 @@ const PREVIOUS_PERSON_HEADERS=['國別','單位','區域','姓名','角色',
   '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
   '公堂進階班達標人數（回報人記錄）','個人成全進階班回報筆數（班員記錄）',
   '有效相關回報筆數','結算時間'];
+const PREVIOUS_V2_REGION_HEADERS=['區域','國別','單位','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
+  '個人成全進階班回報筆數','公堂進階班達標班員人數','成全安堂完成筆數',
+  '有效回報筆數','待審核申請筆數','結算時間'];
+const PREVIOUS_V2_PERSON_HEADERS=['國別','單位','區域','姓名','角色',
+  '個人渡眾人數','個人成全進階班回報筆數','成全安堂完成筆數',
+  '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
+  '公堂進階班達標人數（回報人記錄）','有效相關回報筆數','結算時間'];
 function settlementSchema_(ss,title,expected){
   const sh=ss.getSheetByName(title);
   if(!sh)return {sheet:null,upgrade:false};
@@ -1429,8 +1441,10 @@ function settlementSchema_(ss,title,expected){
   const matches=(headers)=>headers.every((x,i)=>String(got[i]||'')===x)&&
     got.slice(headers.length).every(x=>String(x||'')==='');
   if(matches(expected))return {sheet:sh,upgrade:false};
-  const legacy=title==='區域成績結算'?PREVIOUS_REGION_HEADERS:PREVIOUS_PERSON_HEADERS;
-  if(matches(legacy))return {sheet:sh,upgrade:true};
+  const legacy=title==='區域成績結算'?
+    [PREVIOUS_V2_REGION_HEADERS,PREVIOUS_REGION_HEADERS]:
+    [PREVIOUS_V2_PERSON_HEADERS,PREVIOUS_PERSON_HEADERS];
+  if(legacy.some(headers=>matches(headers)))return {sheet:sh,upgrade:true};
   throw new Error('「'+title+'」表頭不符合目前或前一版結算格式，為保護資料停止更新');
 }
 function backupSettlementBeforeUpgrade_(sh){
@@ -1458,7 +1472,7 @@ function settlementSheet_(ss,title,headers,rows,checked){
   if(sh.getFilter())sh.getFilter().remove();
   sh.getRange(1,1,sh.getMaxRows(),width).createFilter();
 }
-function recalculateScores(){
+function recalculateScores(options){
   const admin=requireAdmin_();
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   try{
@@ -1471,10 +1485,11 @@ function recalculateScores(){
     if(regionSchema.upgrade)backupSettlementBeforeUpgrade_(regionSchema.sheet);
     settlementSheet_(ss,'個人成績結算',SETTLEMENT_PERSON_HEADERS,data.personal,personalSchema);
     settlementSheet_(ss,'區域成績結算',SETTLEMENT_REGION_HEADERS,data.regional,regionSchema);
-    auditSheet_().appendRow([new Date(),'settlement_refresh','','',admin,'',JSON.stringify({
-      people:data.personal.length,regions:data.regional.length,pending:data.pendingCount,
-      legacyWithoutIndex:data.missingIndex
-    }),'重新結算個人與區域成績；原始紀錄未更動']);
+    if(!options||!options.silent)
+      auditSheet_().appendRow([new Date(),'settlement_refresh','','',admin,'',JSON.stringify({
+        people:data.personal.length,regions:data.regional.length,pending:data.pendingCount,
+        legacyWithoutIndex:data.missingIndex
+      }),'重新結算個人與區域成績；原始紀錄未更動']);
     return {ok:true,personalRows:data.personal.length,regionalRows:data.regional.length,
       pendingCount:data.pendingCount,missingIndex:data.missingIndex,updatedAt:data.stamp};
   }finally{lock.releaseLock();}
@@ -1498,6 +1513,51 @@ function adminRecalculateScoresPrompt(){
     return result;
   }catch(err){
     ui.alert('結算未完成',String(err.message||err)+'\n請檢查成績分頁，不要手動刪除舊資料。',ui.ButtonSet.OK);
+    throw err;
+  }
+}
+
+
+/**
+ * Run once as a spreadsheet administrator to authorize an installable time
+ * trigger. A scheduled trigger runs as its installer (never as an anonymous
+ * reporter); no publicly callable web action is provided.
+ */
+function installAutoSettlement(){
+  requireAdmin_();
+  const props=PropertiesService.getScriptProperties();
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    const active=ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction()==='autoRecalculateScores_');
+    if(active.length)return {ok:true,created:false,count:active.length,message:'已存在自動結算排程，無須重複建立'};
+    // First calculate and validate both tables, then create a trigger.
+    recalculateScores({silent:true});
+    ScriptApp.newTrigger('autoRecalculateScores_').timeBased().everyMinutes(5).create();
+    props.setProperty('AUTO_SETTLEMENT_INTERVAL_MIN','5');
+    return {ok:true,created:true,count:1,message:'已啟用每5分鐘自動更新個人／區域成績'};
+  }finally{lock.releaseLock();}
+}
+function autoRecalculateScores_(){
+  // Scheduled handler, not a public web action. Any failure surfaces in Apps
+  // Script's trigger execution logs / failure emails; never discard the data.
+  return recalculateScores({silent:true});
+}
+function adminInstallAutoSettlementPrompt(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi();
+  const choice=ui.alert('啟用自動成績結算',
+    '將授權 Apps Script 每5分鐘重新計算「個人成績結算」和「區域成績結算」，無須手動按重新結算。首次啟用會先執行結算。\n不會更動原始成績或照片。\n確定啟用嗎？',
+    ui.ButtonSet.YES_NO);
+  if(choice!==ui.Button.YES)return {ok:false,cancelled:true};
+  try{
+    const result=installAutoSettlement();
+    ui.alert('自動結算設定',result.message+
+      '\n未來的新回報、核准修改、核准取消會在下一次排程更新（約5分鐘內，實際以Google排程為準）。',
+      ui.ButtonSet.OK);
+    return result;
+  }catch(err){
+    ui.alert('啟用失敗',String(err.message||err)+
+      '\n請確認執行帳號有 Apps Script 觸發器及原始試算表權限。',ui.ButtonSet.OK);
     throw err;
   }
 }
