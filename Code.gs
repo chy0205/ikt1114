@@ -1029,7 +1029,7 @@ function optionPasswordRegions_(password){
   records.forEach(row=>{
     // 同一區域可在 D 欄填寫多組密碼，以換行、半形／全形逗號或分號分隔。
     // 維持舊版單一密碼格式相容；精確比對完整密碼，不能只比對部分字串。
-    const passwords=String(row[3]||'').split(/[\\r\\n,，;；]+/)
+    const passwords=String(row[3]||'').split(/[\r\n,，;；]+/)
       .map(value=>value.trim()).filter(Boolean);
     if(passwords.length>20)throw new Error('同一區域最多可設定20組查詢密碼');
     const matched=passwords.some(stored=>{
