@@ -1161,13 +1161,17 @@ function regionalChangeRequest_(p){
   const id=String(p.id||'').trim();
   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
     throw new Error('回報編號格式不正確');
-  const patch=p.changes;
-  if(!patch||typeof patch!=='object'||Array.isArray(patch)||!Object.keys(patch).length)
-    throw new Error('請至少修改一個欄位');
-  if(Object.keys(patch).some(k=>['country','unit','district'].includes(k)))
-    throw new Error('區域負責人無法跨區修改國別、單位或區域，請聯絡管理員');
+  const changeType=String(p.changeType||'modify');
+  if(!['modify','cancel'].includes(changeType))throw new Error('申請類型無效');
+  const patch=changeType==='cancel'?{}:p.changes;
+  if(changeType==='modify'){
+    if(!patch||typeof patch!=='object'||Array.isArray(patch)||!Object.keys(patch).length)
+      throw new Error('請至少修改一個欄位');
+    if(Object.keys(patch).some(k=>['country','unit','district'].includes(k)))
+      throw new Error('區域負責人無法跨區修改國別、單位或區域，請聯絡管理員');
+  }
   const reason=String(p.reason||'').trim();
-  if(reason.length<4||reason.length>500)throw new Error('請填寫4至500字的修改原因');
+  if(reason.length<4||reason.length>500)throw new Error('請填寫4至500字的修改或取消原因');
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   try{
     // 在持鎖的寫入階段重新讀取 D 欄密碼與授權範圍，避免管理員剛撤銷權限。
@@ -1181,8 +1185,10 @@ function regionalChangeRequest_(p){
     const type=source.type,report=source.report,f=report.values;
     if(!latestAllowed.some(x=>x.country===f.country&&x.unit===f.unit&&x.district===f.district))
       throw new Error('此回報已不在密碼授權範圍');
-    validateChange_(type,f,patch);
-    if(Object.keys(patch).every(k=>String(patch[k])===String(f[k])))throw new Error('修改內容與原始資料相同');
+    if(changeType==='modify'){
+      validateChange_(type,f,patch);
+      if(Object.keys(patch).every(k=>String(patch[k])===String(f[k])))throw new Error('修改內容與原始資料相同');
+    }
     // 只有真正提交有效申請，才補建缺少的回報索引。
     // 隨機密碼不向區域負責人顯示，也不寫入日誌；以後如需個別查詢，
     // 應由管理員核實原回報者後再安全重設其專屬查詢密碼。
@@ -1190,14 +1196,14 @@ function regionalChangeRequest_(p){
       const secret=issueSecret_(),now=new Date();
       auditSheet_().appendRow([now,'regional_legacy_index',id,'','系統','',
         JSON.stringify({type,location:[f.country,f.unit,f.district]}),
-        '區域負責人提出修改申請，為既有回報補建索引，不更動原始成績']);
+        '區域負責人提出修改或取消申請，為既有回報補建索引，不更動原始成績']);
       indexSheet_().appendRow([id,type,secret.salt,secret.hash,'已回報',1,now,now]);
       idx=findIndex_(id);
       if(!idx)throw new Error('建立回報索引失敗，請管理員核對，勿重複送出');
     }
     const requestId=Utilities.getUuid();
-    changeSheet_().appendRow([requestId,id,'modify',Number(idx.values[5]),JSON.stringify(f),
-      JSON.stringify(patch),safeText_('[區域負責人申請] '+reason),'[]','待審核',new Date(),'','','']);
+    changeSheet_().appendRow([requestId,id,changeType,Number(idx.values[5]),JSON.stringify(f),
+      JSON.stringify(patch),safeText_('[區域負責人'+(changeType==='cancel'?'取消':'修改')+'申請] '+reason),'[]','待審核',new Date(),'','','']);
     return {ok:true,requestId,status:'待審核'};
   }finally{lock.releaseLock();}
 }
