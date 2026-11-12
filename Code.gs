@@ -334,7 +334,7 @@ function requestChange_(p){
     if(!report)throw new Error('找不到原始資料');
     const patch=action==='modify'?p.changes:{};
     if(action==='modify')validateChange_(type,report.values,patch);
-    if(action==='modify'&&Number(p.version)!==Number(latest.values[5]))throw new Error('回報資料已更新，請重新查詢後修改');
+    if(Number(p.version)!==Number(latest.values[5]))throw new Error('回報資料已更新，請重新查詢後修改');
     const requestId=Utilities.getUuid();
     changeSheet_().appendRow([requestId,id,action,Number(latest.values[5]),JSON.stringify(report.values),
       JSON.stringify(patch),safeText_(reason),'[]','待審核',new Date(),'','','']);
@@ -349,7 +349,16 @@ function requestChange_(p){
  *   function approveSelected(){reviewChangeRequest('申請UUID','approve','已核對');}
  * 結束後刪除暫時函式，避免共用編輯者誤操作。
  */
+function requireAdmin_(){
+  const raw=PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS')||'';
+  const allowed=raw.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
+  const current=(Session.getEffectiveUser().getEmail()||'').trim().toLowerCase();
+  if(!current||!allowed.length||!allowed.includes(current))
+    throw new Error('管理員權限未設定或目前帳號不在 ADMIN_EMAILS 允許清單');
+  return current;
+}
 function reviewChangeRequest(requestId,decision,note){
+  const adminEmail=requireAdmin_();
   requireSecuritySetup_();
   if(!['approve','reject'].includes(decision))throw new Error('只能核准或拒絕');
   if(!/^[a-f0-9-]{36}$/i.test(String(requestId)))throw new Error('申請編號格式錯誤');
@@ -366,7 +375,7 @@ function reviewChangeRequest(requestId,decision,note){
     if(Number(idx.values[5])!==Number(r[3]))throw new Error('原始資料已變更，請重新核對申請');
     const report=findReport_(String(idx.values[1]),String(r[1]));
     if(!report)throw new Error('原始回報不見了');
-    const admin=Session.getEffectiveUser().getEmail()||'Apps Script 執行者';
+    const admin=adminEmail;
     const after=JSON.parse(JSON.stringify(report.values));
     const patches=JSON.parse(String(r[5]));
     if(decision==='approve'&&String(r[2])==='modify'){
@@ -396,6 +405,7 @@ function reviewChangeRequest(requestId,decision,note){
  * 不寫入原始成績工作表，不對外開放 API。
  */
 function enrollLegacyReport(reportId){
+  requireAdmin_();
   requireSecuritySetup_();
   if(!/^[a-f0-9-]{36}$/i.test(String(reportId)))throw new Error('回報編號格式錯誤');
   const lock=LockService.getScriptLock();lock.waitLock(30000);
