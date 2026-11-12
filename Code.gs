@@ -117,6 +117,7 @@ function doPost(e) {
     if(action==='submit') result=submit_(payload);
     else if(action==='lookup') result=lookupReport_(payload);
     else if(action==='changeRequest') result=requestChange_(payload);
+    else if(action==='regionalLookup') result=regionalLookup_(payload);
     else throw new Error('不支援的操作');
     return json_(result);
   } catch (err) {
@@ -569,7 +570,8 @@ function onOpen(e){
     .addSeparator()
     .addItem('審核修改／取消申請…','adminReviewPending')
     .addSeparator()
-    .addItem('建立／更新單一區域報表…','adminDistrictViewPrompt')
+    .addItem('核發區域負責人查詢密碼…','adminIssueRegionalAccessPrompt')
+    .addItem('停用區域查詢密碼…','adminRevokeRegionalAccessPrompt')
     .addToUi();
 }
 /**
@@ -905,4 +907,128 @@ function adminDistrictViewPrompt(){
     ui.ButtonSet.OK);
   Logger.log('區域報表（請限該區域負責人檢視）：'+result.url);
   return result;
+}
+
+
+/**
+ * 區域負責人前端查詢（V3）：同一組獨立查詢密碼可綁定多個指定區域。
+ * 不能以公開 API 發密碼／更改權限；只有 ADMIN_EMAILS 的 Apps Script 管理員可核發。
+ * 不使用原回報查詢密碼，不返回照片連結或其他區域資料。
+ */
+const REGIONAL_ACCESS_HEADERS=['憑證編號','查詢鹽值','查詢雜湊','允許區域JSON','狀態','建立時間','更新時間','核發管理員'];
+function regionalAccessSheet_(){return managementSheet_('區域查詢授權',REGIONAL_ACCESS_HEADERS);}
+function parseRegionalScope_(raw){
+  if(!Array.isArray(raw)||!raw.length||raw.length>100)throw new Error('請指定1～100個區域');
+  const seen=new Set(),regions=[];
+  raw.forEach(item=>{
+    if(!item||typeof item!=='object')throw new Error('區域格式不符');
+    const country=String(item.country||'').trim(),unit=String(item.unit||'').trim(),
+      district=String(item.district||'').trim();
+    const key=regionKey_(country,unit,district);
+    if(!seen.has(key)){
+      regions.push(validRegion_(country,unit,district));
+      seen.add(key);
+    }
+  });
+  return regions;
+}
+function regionalSecret_(){
+  const password=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');
+  const salt=Utilities.getUuid()+Utilities.getUuid();
+  return {password,salt,hash:digest_(password,salt)};
+}
+function adminIssueRegionalAccess_(areas){
+  const actor=requireAdmin_();requireSecuritySetup_();
+  const regions=parseRegionalScope_(areas);
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    const sh=regionalAccessSheet_(),secret=regionalSecret_(),id=Utilities.getUuid(),now=new Date();
+    sh.appendRow([id,secret.salt,secret.hash,JSON.stringify(regions),'有效',now,now,actor]);
+    auditSheet_().appendRow([now,'regional_access_issue','',id,actor,'',
+      JSON.stringify({regions:regions.length}), '核發指定區域負責人唯讀密碼']);
+    return {id,password:secret.password,regions};
+  }finally{lock.releaseLock();}
+}
+function adminRevokeRegionalAccess_(credentialId){
+  const actor=requireAdmin_();const id=String(credentialId||'').trim();
+  if(!/^[0-9a-f-]{36}$/i.test(id))throw new Error('憑證編號格式不正確');
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    const sh=regionalAccessSheet_(),end=sh.getLastRow();
+    if(end<2)throw new Error('沒有授權紀錄');
+    const hit=sh.getRange(2,1,end-1,1).createTextFinder(id).matchEntireCell(true).findNext();
+    if(!hit)throw new Error('查無授權憑證');
+    sh.getRange(hit.getRow(),5).setValue('停用');
+    sh.getRange(hit.getRow(),7).setValue(new Date());
+    auditSheet_().appendRow([new Date(),'regional_access_revoke','',id,actor,'','','停用區域查詢密碼']);
+    return {ok:true,id};
+  }finally{lock.releaseLock();}
+}
+function adminIssueRegionalAccessPrompt(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi();
+  const p=ui.prompt('核發區域負責人查詢密碼',
+    '請輸入要授權的區域，每行一個，格式為：國別/單位/區域\n例如：台灣/中和/中和001\n可輸入多行以授權同一位負責人查看多個區域。',
+    ui.ButtonSet.OK_CANCEL);
+  if(p.getSelectedButton()!==ui.Button.OK)return;
+  const lines=p.getResponseText().split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  let regions;
+  try{
+    regions=parseRegionalScope_(lines.map(line=>{
+      const parts=line.split('/').map(x=>x.trim());
+      if(parts.length!==3)throw new Error('每行必須是 國別/單位/區域');
+      return {country:parts[0],unit:parts[1],district:parts[2]};
+    }));
+  }catch(err){ui.alert('授權區域錯誤',String(err.message||err),ui.ButtonSet.OK);return;}
+  const confirm=ui.alert('確認核發',
+    '確定允許此查詢密碼查看以下 '+regions.length+' 個區域？\n'+
+    regions.map(x=>[x.country,x.unit,x.district].join('／')).join('\n')+
+    '\n\n密碼請私下交付負責人，勿張貼於群組。',ui.ButtonSet.YES_NO);
+  if(confirm!==ui.Button.YES)return;
+  const result=adminIssueRegionalAccess_(regions);
+  ui.alert('區域查詢密碼（請立即保存）',
+    '授權編號：'+result.id+'\n查詢密碼：'+result.password+
+    '\n\n請立即複製並私下交付區域負責人。關閉後無法找回原密碼；如需停用請記下授權編號。',
+    ui.ButtonSet.OK);
+  return {ok:true,id:result.id};
+}
+function adminRevokeRegionalAccessPrompt(){
+  requireAdmin_();const ui=SpreadsheetApp.getUi();
+  const p=ui.prompt('停用區域查詢密碼','請輸入當初核發的授權編號（不是回報編號）：',ui.ButtonSet.OK_CANCEL);
+  if(p.getSelectedButton()!==ui.Button.OK)return;
+  const yes=ui.alert('確認停用','停用後該查詢密碼將無法再查看區域資料，確定？',ui.ButtonSet.YES_NO);
+  if(yes!==ui.Button.YES)return;
+  const result=adminRevokeRegionalAccess_(p.getResponseText().trim());
+  ui.alert('已停用','授權編號：'+result.id,ui.ButtonSet.OK);
+}
+function regionalLookup_(payload){
+  requireSecuritySetup_();
+  const password=String(payload.regionalPassword||'');
+  if(!/^[a-f0-9]{64}$/i.test(password))throw new Error('查詢密碼錯誤');
+  const cache=CacheService.getScriptCache();
+  // 限制同一錯誤密碼的重複嘗試；不把原始密碼放進快取鍵。
+  const cacheKey='regional_fail_'+digest_(password,'region-attempt').slice(0,40);
+  if(Number(cache.get(cacheKey)||0)>=8)throw new Error('嘗試次數過多，請稍後再試');
+  const sh=regionalAccessSheet_(),last=sh.getLastRow();
+  if(last<2)throw new Error('查詢密碼錯誤');
+  const rows=sh.getRange(2,1,last-1,REGIONAL_ACCESS_HEADERS.length).getValues();
+  let credential=null;
+  for(const row of rows){
+    if(String(row[4])!=='有效')continue;
+    if(safeEquals_(digest_(password,String(row[1])),String(row[2]))){credential=row;break;}
+  }
+  if(!credential){
+    cache.put(cacheKey,String(Number(cache.get(cacheKey)||0)+1),900);
+    throw new Error('查詢密碼錯誤或已停用');
+  }
+  cache.remove(cacheKey);
+  // 必須使用儲存在管理端的允許區域，不能接受前端傳入的國別／區域作為權限。
+  const allowed=parseRegionalScope_(JSON.parse(String(credential[3])));
+  const results=allowed.map(x=>regionViewRows_(x.country,x.unit,x.district));
+  const details=[],summary=[];
+  results.forEach(x=>{
+    summary.push(x.summary[0]);x.details.forEach(row=>details.push(row));
+  });
+  return {ok:true,regions:allowed,summaryHeaders:REGIONAL_SUMMARY_HEADERS,
+    detailHeaders:REGIONAL_DETAIL_HEADERS,summary,details,updatedAt:new Date().toISOString()};
 }
