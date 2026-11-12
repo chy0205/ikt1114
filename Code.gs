@@ -433,6 +433,10 @@ function reviewChangeRequest(requestId,decision,note){
     if(Number(idx.values[5])!==Number(r[3]))throw new Error('原始資料已變更，請重新核對申請');
     const report=findReport_(String(idx.values[1]),String(r[1]));
     if(!report)throw new Error('原始回報不見了');
+    const previousSnapshot=JSON.parse(String(r[4]));
+    if(TYPES[String(idx.values[1])].fields.some(key=>
+      String(report.values[key]||'')!==String(previousSnapshot[key]||'')))
+      throw new Error('原始資料已被其他人修改，請先核對，不能直接審核');
     const admin=adminEmail;
     const after=JSON.parse(JSON.stringify(report.values));
     const patches=JSON.parse(String(r[5]));
@@ -562,7 +566,142 @@ function onOpen(e){
   SpreadsheetApp.getUi().createMenu('管理員工具')
     .addItem('查詢回報編號…','adminLookupSelected')
     .addItem('重設回報查詢密碼…','resetLookupPasswordSelected')
+    .addSeparator()
+    .addItem('審核修改／取消申請…','adminReviewPending')
     .addToUi();
+}
+/**
+ * 管理員對話框：查看待審核的修改／取消申請，再決定核准或拒絕。
+ * 僅能從已綁定試算表的「管理員工具」選單使用；公開 API 不提供審核操作。
+ * onOpen 建立選單並不代表授權，查詢與核准時都會再次要求 ADMIN_EMAILS。
+ */
+function adminPendingRequests_(){
+  requireAdmin_();
+  const sh=changeSheet_(),last=sh.getLastRow();
+  if(last<2)return [];
+  return sh.getRange(2,1,last-1,CHANGE_HEADERS.length).getValues()
+    .filter(row=>String(row[8])==='待審核')
+    .map(row=>({
+      requestId:String(row[0]),reportId:String(row[1]),
+      type:String(row[2]),version:Number(row[3]),
+      reason:String(row[6]),submittedAt:row[9] instanceof Date
+        ?Utilities.formatDate(row[9],'Asia/Taipei','yyyy/MM/dd HH:mm')
+        :String(row[9])
+    }));
+}
+function adminReviewDetails_(requestId){
+  requireAdmin_();
+  const id=String(requestId||'').trim();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+    throw new Error('申請編號格式錯誤');
+  const sh=changeSheet_(),last=sh.getLastRow();
+  if(last<2)throw new Error('沒有修改申請');
+  const hit=sh.getRange(2,1,last-1,1).createTextFinder(id).matchEntireCell(true).findNext();
+  if(!hit)throw new Error('查無此申請編號');
+  const vals=sh.getRange(hit.getRow(),1,1,CHANGE_HEADERS.length).getValues()[0];
+  if(String(vals[8])!=='待審核')throw new Error('這筆申請已經處理，請重新整理待審核清單');
+  const idx=findIndex_(String(vals[1]));
+  if(!idx)throw new Error('找不到原始回報索引');
+  const type=String(idx.values[1]);
+  const original=JSON.parse(String(vals[4])),patch=JSON.parse(String(vals[5]));
+  if(!original||typeof original!=='object'||!patch||typeof patch!=='object')
+    throw new Error('申請資料格式錯誤');
+  const current=findReport_(type,String(vals[1]));
+  if(!current)throw new Error('找不到原始回報');
+  const stale=Number(idx.values[5])!==Number(vals[3]) ||
+    TYPES[type].fields.some(key=>String(current.values[key]||'')!==String(original[key]||''));
+  const labelMap=Object.assign({},FIELD_HEADERS,TYPE_LABELS[type]||{});
+  const changes=[];
+  if(String(vals[2])==='modify'){
+    Object.keys(patch).forEach(key=>{
+      if(!TYPES[type].fields.includes(key))throw new Error('申請包含不合法的欄位，不能審核');
+      changes.push((labelMap[key]||key)+'：'+String(original[key]||'')+'  →  '+String(patch[key]||''));
+    });
+  }else if(String(vals[2])==='cancel'){
+    changes.push('申請取消整筆回報（原始紀錄保留，停止認列）');
+  }else throw new Error('未知申請類型');
+  return {
+    requestId:id,reportId:String(vals[1]),
+    type:String(vals[2]),sheet:TYPES[type].sheet,
+    reason:String(vals[6]),version:Number(vals[3]),
+    changes:changes,stale:stale,
+    currentSummary:TYPES[type].fields
+      .map(key=>(labelMap[key]||key)+'：'+String(current.values[key]||''))
+  };
+}
+function adminReviewPending(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi();
+  try{
+    const pending=adminPendingRequests_();
+    if(!pending.length){
+      ui.alert('目前沒有待審核申請','「修改申請」分頁目前沒有狀態為待審核的紀錄。',ui.ButtonSet.OK);
+      return {ok:true,pending:0};
+    }
+    const display=pending.slice(0,15);
+    const intro='目前共 '+pending.length+' 筆待審核。以下列出前 '+display.length+
+      ' 筆（最新申請不會自動優先）：\n\n'+
+      display.map((item,i)=>(i+1)+'. '+(item.type==='cancel'?'取消':'修改')+
+        '｜'+item.submittedAt+'\n申請編號：'+item.requestId+
+        '\n回報編號：'+item.reportId).join('\n\n')+
+      '\n\n請輸入要審核的「申請編號」，不要輸入回報編號。';
+    ui.alert('待審核申請清單',intro,ui.ButtonSet.OK);
+    const response=ui.prompt('選擇要審核的申請','請貼上申請編號（UUID）：',ui.ButtonSet.OK_CANCEL);
+    if(response.getSelectedButton()!==ui.Button.OK)return {ok:false,cancelled:true};
+    const id=response.getResponseText().trim();
+    if(!pending.some(item=>item.requestId===id)){
+      ui.alert('找不到待審核申請','請確認輸入的是清單中的申請編號，並重新操作。',ui.ButtonSet.OK);
+      return {ok:false,error:'not_pending'};
+    }
+    const detail=adminReviewDetails_(id);
+    const message=[
+      '回報類別：'+detail.sheet,
+      '回報編號：'+detail.reportId,
+      '申請編號：'+detail.requestId,
+      '申請類型：'+(detail.type==='cancel'?'取消回報':'修改資料'),
+      '申請原因：'+detail.reason,
+      '',
+      '申請內容：',
+      detail.changes.join('\n'),
+      '',
+      '目前資料（供核對）：',
+      detail.currentSummary.join('\n'),
+      '',
+      detail.stale?'⚠ 原始資料／版本已變更，不能直接核准。':
+        '請核對辦道簿、求道卡或出席表等證明後再決定。',
+      '',
+      '按「是」＝核准；按「否」＝拒絕；按「取消」＝不處理。'
+    ].join('\n');
+    const decision=ui.alert('審核申請：請仔細核對',message,ui.ButtonSet.YES_NO_CANCEL);
+    if(decision!==ui.Button.YES&&decision!==ui.Button.NO)return {ok:false,cancelled:true};
+    if(detail.stale){
+      ui.alert('資料已變更','原始回報內容或版本已與申請當時不同。請先人工核對，這次不會更動成績。',ui.ButtonSet.OK);
+      return {ok:false,stale:true};
+    }
+    const action=decision===ui.Button.YES?'approve':'reject';
+    const noteResponse=ui.prompt(action==='approve'?'核准說明':'拒絕原因',
+      '請輸入審核依據與處理說明（至少 4 字），確認後才會儲存：',
+      ui.ButtonSet.OK_CANCEL);
+    if(noteResponse.getSelectedButton()!==ui.Button.OK)return {ok:false,cancelled:true};
+    const note=noteResponse.getResponseText().trim();
+    if(note.length<4||note.length>500){
+      ui.alert('審核說明不完整','請填寫 4～500 字的審核依據，這次未做任何修改。',ui.ButtonSet.OK);
+      return {ok:false,error:'note'};
+    }
+    const confirm=ui.alert('最後確認',
+      '申請：'+detail.requestId+'\n決定：'+(action==='approve'?'核准':'拒絕')+
+      '\n說明：'+note+'\n\n執行後會留下稽核紀錄。確定繼續嗎？',
+      ui.ButtonSet.YES_NO);
+    if(confirm!==ui.Button.YES)return {ok:false,cancelled:true};
+    const result=reviewChangeRequest(id,action,note);
+    ui.alert('審核已完成','申請編號：'+id+'\n處理結果：'+
+      (action==='approve'?'已核准':'已拒絕')+
+      '\n請確認「修改申請」與「操作紀錄」分頁。',ui.ButtonSet.OK);
+    return result;
+  }catch(err){
+    ui.alert('審核未完成','未確認成功，請檢查資料與操作紀錄後再處理。\n'+String(err.message||err),ui.ButtonSet.OK);
+    throw err;
+  }
 }
 function adminPromptId_(ui,title){
   const response=ui.prompt(title,'請輸入完整回報編號（UUID）：',ui.ButtonSet.OK_CANCEL);
