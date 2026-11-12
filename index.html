@@ -74,8 +74,7 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
       <input type="password" id="regionalPassword" required autocomplete="off" placeholder="請輸入管理員提供的區域查詢密碼"></div>
     <button id="regionalSubmit" type="submit">查詢授權區域成績</button>
   </form>
-  <button type="button" id="regionalHealthCheck" class="button-outline mini-button" style="margin-top:10px">檢查後端部署版本</button>
-  <div id="regionalHealthStatus" class="status" role="status" aria-live="polite"></div>
+  <p class="notice" style="margin-top:12px;margin-bottom:14px"><strong>申請完請聯絡劉點傳師</strong></p>
   <div id="regionalStatus" class="status" role="status" aria-live="polite"></div>
   <div id="regionalResults" class="hidden">
     <div class="lookup-card">
@@ -539,27 +538,6 @@ el('regionalEditForm').addEventListener('submit',async event=>{
   finally{button.disabled=false;}
 });
 
-const REGIONAL_EXPECTED_BUILD='regional-change-20261112-v2';
-async function checkRegionalApiHealth_(){
-  const target=el('regionalHealthStatus');
-  target.className='status';target.textContent='檢查中…';
-  try{
-    const response=await fetch(API_URL+'?action=health&t='+Date.now(),{cache:'no-store'});
-    const data=await response.json();
-    if(!data.ok)throw new Error(data.error||'服務無法連線');
-    if(data.build!==REGIONAL_EXPECTED_BUILD){
-      statusMessage('regionalHealthStatus',
-        '後端部署版本不符。網站要求 '+REGIONAL_EXPECTED_BUILD+
-        '，目前回傳 '+String(data.build||'未提供版本資訊（舊部署）')+
-        '。請在 Apps Script「管理部署作業」更新網站目前使用的同一個 /exec 部署為新版本。',true);
-    }else{
-      statusMessage('regionalHealthStatus','後端版本相符：'+data.build+'。若查詢仍失敗，請核對「選項設定」D欄及執行記錄。');
-    }
-  }catch(error){
-    statusMessage('regionalHealthStatus','無法確認線上版本：'+error.message+'。請檢查部署權限及網頁 API_URL。',true);
-  }
-}
-el('regionalHealthCheck').addEventListener('click',checkRegionalApiHealth_);
 function regionalTable_(target,headers,rows){
   target.replaceChildren();
   if(!rows.length){const p=document.createElement('p');p.className='muted-note';p.textContent='目前沒有符合條件的回報。';target.append(p);return;}
