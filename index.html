@@ -33,14 +33,14 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
 const API_URL = 'https://script.google.com/macros/s/AKfycbwrWACdDY07XimYM2Ul-dkIw8KeySVDnetLK4GKm7u0Dw8_-YPSY95uVO8QhhfySNh-/exec';
 const TYPES = {
   personal:['country','unit','district','guide','eventDate','count','files'],
-  family:['country','unit','district','temple','host','eventDate','count'],
-  public:['country','unit','district','reporterName','temple','eventDate','count'],
+  family:['country','unit','district','temple','host','eventDate','count','files'],
+  public:['country','unit','district','reporterName','temple','eventDate','count','files'],
   personalClass:['country','unit','district','classType','mentor','student','eventDate','session','files'],
   publicClass:['country','unit','district','reporterName','temple','classType','count','files'],
   temple:['country','unit','district','mentor','host','eventDate','files']
 };
-const TYPE_LABELS={personal:{eventDate:'辦道日期',count:'此次渡眾人數',files:'上傳求道卡照片'},family:{temple:'佛堂堂號',eventDate:'辦道日期',count:'渡眾人數'},public:{temple:'公堂堂號',eventDate:'辦道日期',count:'渡眾人數'},personalClass:{eventDate:'上課日期',files:'上傳上課出席表'},publicClass:{temple:'公堂堂號',count:'堂數達標之班員人數',files:'上傳上課出席表'},temple:{eventDate:'正式安堂日期',files:'上傳安堂當天照片（佛堂須入鏡）'}};
-const TYPE_HELP={personal:'每次個人渡眾回報都需要附上求道卡照片。',family:'獲獎結算時，需提供辦道簿供核實。',public:'公堂渡眾回報需填寫回報人姓名與區域；結算時提供辦道簿。',personalClass:'請依班期選擇第 1～24 次上課，並附上上課出席表。',publicClass:'請填寫達標班員人數，並上傳進階班出席表。',temple:'必須已正式完成安堂，並上傳佛堂入鏡的當天照片。'};
+const TYPE_LABELS={personal:{eventDate:'辦道日期',count:'此次渡眾人數',files:'上傳求道卡照片'},family:{temple:'佛堂堂號',eventDate:'辦道日期',count:'渡眾人數',files:'上傳辦道簿照片（選填）'},public:{temple:'公堂堂號',eventDate:'辦道日期',count:'渡眾人數',files:'上傳辦道簿照片（選填）'},personalClass:{eventDate:'上課日期',files:'上傳上課出席表'},publicClass:{temple:'公堂堂號',count:'堂數達標之班員人數',files:'上傳上課出席表'},temple:{eventDate:'正式安堂日期',files:'上傳安堂當天照片（佛堂須入鏡）'}};
+const TYPE_HELP={personal:'每次個人渡眾回報都需要附上求道卡照片。',family:'獲獎結算時，需提供辦道簿供核實；可先選擇上傳照片。',public:'公堂渡眾需填寫姓名與區域；辦道簿可先上傳，結算時仍須核實。',personalClass:'請依班期選擇第 1～24 次上課，並附上上課出席表。',publicClass:'請填寫達標班員人數，並上傳進階班出席表。',temple:'必須已正式完成安堂，並上傳佛堂入鏡的當天照片。'};
 const LABEL = {country:'國家',unit:'單位',district:'區域',reporterName:'回報人姓名',guide:'引師姓名',
   temple:'佛堂／公堂堂號',host:'壇主姓名',mentor:'成全者姓名',student:'班員姓名',
   eventDate:'辦道／上課／正式安堂日期',count:'渡眾／達標人數',classType:'進階班類別',
@@ -58,6 +58,7 @@ function updateProgress(){
   const stage=!type?0:!located?1:2;
   const detailKeys=type&&TYPES[type]?TYPES[type].filter(k=>!['country','unit','district'].includes(k)):[];
   const completed=stage===2&&detailKeys.every(k=>{
+    if(k==='files'&&['family','public'].includes(type))return true;
     const node=el(k);return node&&(k==='files'?node.files.length>0:!!String(node.value||'').trim());
   });
   const percent=completed?100:[0,34,67][stage];
@@ -89,7 +90,7 @@ function field(key) {
     input.addEventListener('input',()=>validateFourDigitDate(input));
     input.addEventListener('change',()=>validateFourDigitDate(input));
   }
-  input.id=key;input.name=key;input.required=true;outer.append(input);
+  input.id=key;input.name=key;input.required=!(key==='files'&&['family','public'].includes(typeField.value));outer.append(input);
   if(key==='files') {
     const hint=document.createElement('div');hint.className='hint';
     hint.textContent='最多 5 張，每張不超過 5MB；請確認照片清晰並避免拍到無關資料。';outer.append(hint);
