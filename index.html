@@ -33,7 +33,13 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
 </style></head><body><main class="wrap"><header class="hero"><div class="eyebrow">寶光崇正 · 丁未年</div><h1>2027 白陽慈航盛會</h1><p>線上成績回報系統｜手機、電腦皆可使用</p></header><section class="panel"><div class="notice"><strong>回報前請留意</strong>第一梯次結算：2027/05/23 23:59<br>第二梯次結算：2027/11/07 23:59<br>請確認資料正確，並依回報類別上傳必要的驗證照片。</div><div class="tabs" role="tablist" aria-label="系統功能">
 <button type="button" class="tab-button" id="tabReport" role="tab" aria-selected="true" aria-controls="reportPanel">新增成績回報</button>
 <button type="button" class="tab-button" id="tabLookup" role="tab" aria-selected="false" aria-controls="lookupPanel">查詢／申請修改</button>
-</div><div id="reportPanel" role="tabpanel"><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option></select></div><div id="dynamic"></div><button id="submit" type="submit">檢查資料並送出</button><div id="status" class="status" role="status" aria-live="polite"></div></form></div>
+</div><div id="reportPanel" role="tabpanel"><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option></select></div><div id="dynamic"></div><button id="submit" type="submit">檢查資料並送出</button><div id="status" class="status" role="status" aria-live="polite"></div>
+<div id="accessReceipt" class="lookup-card hidden">
+<strong>請保存查詢憑證（僅於這次回報成功後顯示）</strong>
+<p class="muted-note">憑證請勿傳給他人；失去查詢密碼須由管理員核實身分後協助處理。</p>
+<div class="password-output" id="accessText"></div>
+<button type="button" id="copyAccess" class="mini-button">複製回報編號與查詢密碼</button>
+</div></form></div>
 <div id="lookupPanel" class="hidden" role="tabpanel" aria-labelledby="tabLookup">
   <h2 style="font-size:20px;margin:3px 0 8px">查詢已回報的成績</h2>
   <p class="helper">請輸入當時取得的回報編號與查詢密碼。系統不會依姓名公開搜尋回報紀錄。</p>
@@ -237,6 +243,7 @@ form.addEventListener('submit',async e=>{
     el('eventDate').reportValidity();
     return;
   }
+  el('accessReceipt').classList.add('hidden');
   const btn=submitButton,status=el('status');
   const spec=TYPES[type],lines=[typeField.selectedOptions[0]?.textContent, '國家：'+el('country').value,'單位：'+el('unit').value,'區域：'+el('district').value];
   for(const key of spec.filter(k=>!['country','unit','district','files'].includes(k))){
@@ -263,7 +270,14 @@ form.addEventListener('submit',async e=>{
     const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
     const data=await response.json();if(!data.ok)throw Error(data.error||'送出失敗');
     status.className='status success';
-    status.textContent='回報成功！\n回報編號：'+data.id+'\n查詢密碼（僅顯示這一次，請立即保存）：'+data.lookupPassword+'\n請勿分享查詢密碼。日後可使用「查詢／申請修改」功能。';
+    status.textContent='回報成功！回報編號：'+data.id;
+    if(data.lookupPassword){
+      el('accessReceipt').classList.remove('hidden');
+      el('accessText').textContent='回報編號：'+data.id+'\n查詢密碼：'+data.lookupPassword;
+    }else{
+      el('accessReceipt').classList.add('hidden');
+      status.textContent+='\n目前部署的後端尚未回傳查詢密碼，請聯絡管理員，且不要再次送出相同成績。';
+    }
     form.reset();el('dynamic').replaceChildren();submitButton.classList.add('hidden');updateProgress();
   }catch(err){
     status.className='status error';status.textContent='回報未確認成功：'+err.message+'。請先向管理員確認是否已收到，避免重複回報。';
@@ -375,5 +389,32 @@ el('changeForm').addEventListener('submit',async e=>{
     foundReport.hasPendingRequest=true;renderLookup(foundReport);
     statusMessage('lookupStatus','申請已送出，狀態：待審核。申請編號：'+result.requestId);
   }catch(err){statusMessage('lookupStatus',err.message,true);button.disabled=false;}
+});
+el('copyAccess').addEventListener('click',async()=>{
+  const content=el('accessText').textContent;
+  try{await navigator.clipboard.writeText(content);el('copyAccess').textContent='已複製，請妥善保存';}
+  catch(_){window.prompt('請複製以下回報憑證並妥善保存',content);}
+});
+function refreshEditLocation(which){
+  if(!foundReport)return;
+  const country=el('edit-country')?.value,unit=el('edit-unit')?.value;
+  const fill=(key,values)=>{
+    const node=el('edit-'+key);if(!node)return;
+    const previous=node.value;
+    const uniqueValues=[...new Set(values.filter(Boolean))].sort((a,b)=>a.localeCompare(b,'zh-Hant'));
+    node.replaceChildren();
+    uniqueValues.forEach(v=>node.add(new Option(v,v)));
+    node.value=uniqueValues.includes(previous)?previous:(uniqueValues[0]||'');
+  };
+  if(which==='country'){
+    fill('unit',options.filter(x=>x.country===country).map(x=>x.unit));
+    refreshEditLocation('unit');
+  }else if(which==='unit'){
+    fill('district',options.filter(x=>x.country===country&&x.unit===unit).map(x=>x.district));
+  }
+}
+el('editableFields').addEventListener('change',e=>{
+  if(e.target.id==='edit-country')refreshEditLocation('country');
+  if(e.target.id==='edit-unit')refreshEditLocation('unit');
 });
 </script></body></html>
