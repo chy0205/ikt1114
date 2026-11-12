@@ -510,7 +510,7 @@ el('regionalEditOpen').addEventListener('click',async()=>{
   }catch(err){statusMessage('regionalEditStatus',err.message,true);}
   finally{button.disabled=false;}
 });
-el('regionalReportId').addEventListener('change',regionalEditReset_);
+el('regionalReportId').addEventListener('change',()=>{regionalEditReset_();el('regionalEditOpen').disabled=false;});
 el('regionalEditCancel').addEventListener('click',regionalEditReset_);
 el('regionalEditForm').addEventListener('submit',async event=>{
   event.preventDefault();
