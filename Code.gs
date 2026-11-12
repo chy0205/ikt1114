@@ -553,31 +553,79 @@ function resetLookupPassword(reportId,verificationNote){
   }finally{lock.releaseLock();}
 }
 /**
- * Admin editor convenience: select report and verification note in Script
- * Properties: ADMIN_TARGET_ID and ADMIN_VERIFICATION_NOTE (never a password).
- * Use adminLookupSelected() to inspect, then resetLookupPasswordSelected().
- * This avoids editing source or accidentally exposing a password in GitHub.
- * Do not store the returned password in Script Properties.
+ * 管理者視窗功能：只能從「與試算表綁定」的 Apps Script，
+ * 在 Google 試算表上方「管理員工具」選單開啟。
+ * 注意：直接在 Apps Script 編輯器按「執行」，不會有試算表 UI 可顯示。
+ * 獨立型 Apps Script 專案無法使用 SpreadsheetApp.getUi()。
  */
+function onOpen(e){
+  SpreadsheetApp.getUi().createMenu('管理員工具')
+    .addItem('查詢回報編號…','adminLookupSelected')
+    .addItem('重設回報查詢密碼…','resetLookupPasswordSelected')
+    .addToUi();
+}
+function adminPromptId_(ui,title){
+  const response=ui.prompt(title,'請輸入完整回報編號（UUID）：',ui.ButtonSet.OK_CANCEL);
+  if(response.getSelectedButton()!==ui.Button.OK)return null;
+  const id=response.getResponseText().trim();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)){
+    ui.alert('格式不正確','請輸入完整的回報編號，格式為 8-4-4-4-12。',ui.ButtonSet.OK);
+    return null;
+  }
+  return id;
+}
 function adminLookupSelected(){
-  requireAdmin_();
-  const id=PropertiesService.getScriptProperties().getProperty('ADMIN_TARGET_ID');
-  const result=adminLookupReport(id);
-  Logger.log(JSON.stringify(result));
-  return result;
+  requireAdmin_(); // 任何查詢前均須後端驗證管理員
+  const ui=SpreadsheetApp.getUi();
+  const id=adminPromptId_(ui,'管理員查詢回報');
+  if(!id)return;
+  try{
+    const info=adminLookupReport(id);
+    const labels={country:'國別',unit:'單位',district:'區域',guide:'引師姓名',
+      reporterName:'回報人姓名',temple:'佛堂／公堂堂號',host:'壇主姓名',
+      mentor:'成全者姓名',student:'班員姓名',classType:'進階班類別',
+      eventDate:'日期',count:'人數',session:'上課次數'};
+    const lines=['回報編號：'+info.id,'回報類別：'+info.sheet,
+      '回報狀態：'+info.status,'照片張數：'+info.photoCount];
+    Object.keys(info.fields).forEach(key=>{
+      lines.push((labels[key]||key)+'：'+info.fields[key]);
+    });
+    ui.alert('查詢結果',lines.join('\n'),ui.ButtonSet.OK);
+    return info;
+  }catch(err){
+    ui.alert('查詢失敗',String(err.message||err),ui.ButtonSet.OK);
+    throw err;
+  }
 }
 function resetLookupPasswordSelected(){
-  requireAdmin_();
-  const props=PropertiesService.getScriptProperties();
-  const id=props.getProperty('ADMIN_TARGET_ID');
-  const note=props.getProperty('ADMIN_VERIFICATION_NOTE');
-  const result=resetLookupPassword(id,note);
-  // Clear the target and reason to reduce accidental repeated rotations.
-  props.deleteProperty('ADMIN_TARGET_ID');
-  props.deleteProperty('ADMIN_VERIFICATION_NOTE');
-  // Apps Script 編輯器不會自動顯示函式回傳值。管理員須在執行記錄
-  // 立即複製此一次性密碼，避免將密碼保存於試算表或 Script Properties。
-  // 注意：擁有專案編輯權限的人也可能查看執行記錄，務必限制專案存取。
-  Logger.log('管理員一次性查詢憑證（請立即安全交付且勿轉貼）：回報編號='+result.id+'；新密碼='+result.lookupPassword);
-  return result;
+  requireAdmin_(); // 不經公開 doPost，且先檢查白名單
+  const ui=SpreadsheetApp.getUi();
+  const id=adminPromptId_(ui,'重設回報查詢密碼');
+  if(!id)return;
+  const reasonPrompt=ui.prompt('核實回報者身分',
+    '請先以其他方式核實本人，再輸入至少 12 字的核實方式與重設原因（勿填敏感證件號碼）：',
+    ui.ButtonSet.OK_CANCEL);
+  if(reasonPrompt.getSelectedButton()!==ui.Button.OK)return;
+  const reason=reasonPrompt.getResponseText().trim();
+  if(reason.length<12||reason.length>500){
+    ui.alert('核實紀錄不足','原因請填 12 至 500 字，未進行重設。',ui.ButtonSet.OK);
+    return;
+  }
+  const confirmation=ui.alert('確認重設',
+    '即將重設回報 '+id+' 的查詢密碼。原密碼會立即失效，原始成績及照片不會刪除。確認已核實本人？',
+    ui.ButtonSet.YES_NO);
+  if(confirmation!==ui.Button.YES)return;
+  try{
+    const result=resetLookupPassword(id,reason);
+    // 只在受限的試算表管理介面顯示新密碼，不寫入執行記錄。
+    // 請管理員立即安全交付；視窗關閉後無法取回原始密碼。
+    ui.alert('密碼已重設（請立即保存）',
+      '回報編號：'+result.id+'\n新查詢密碼：'+result.lookupPassword+
+      '\n\n原密碼已失效。請透過安全管道交給經核實的回報者。關閉視窗後不能再次查看這組密碼。',
+      ui.ButtonSet.OK);
+    return {ok:true,id:result.id};
+  }catch(err){
+    ui.alert('重設失敗',String(err.message||err),ui.ButtonSet.OK);
+    throw err;
+  }
 }
