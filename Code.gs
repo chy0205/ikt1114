@@ -570,7 +570,7 @@ function onOpen(e){
     .addSeparator()
     .addItem('審核修改／取消申請…','adminReviewPending')
     .addSeparator()
-    .addItem('核發區域負責人查詢密碼…','adminIssueRegionalAccessPrompt')
+    .addItem('核發舊式區域密碼（選用）…','adminIssueRegionalAccessPrompt')
     .addItem('停用區域查詢密碼…','adminRevokeRegionalAccessPrompt')
     .addToUi();
 }
@@ -1001,29 +1001,63 @@ function adminRevokeRegionalAccessPrompt(){
   const result=adminRevokeRegionalAccess_(p.getResponseText().trim());
   ui.alert('已停用','授權編號：'+result.id,ui.ButtonSet.OK);
 }
+/**
+ * 「選項設定」D 欄：區域查詢密碼（手動 KEY）。
+ * A~C 欄原樣保留。D 欄只在伺服器讀取，永遠不回傳到公開選項 API。
+ * 同一密碼出現在多列，即代表可以查看那幾列對應的所有區域。
+ * 明文 D 欄有讀取風險：原始試算表務必只供授權管理員存取。
+ */
+function optionPasswordRegions_(password){
+  const sh=sheet_().getSheetByName('選項設定');
+  if(!sh||sh.getLastRow()<2||sh.getLastColumn()<4)return [];
+  // A~D 範圍，只由伺服器讀取。
+  const records=sh.getRange(2,1,sh.getLastRow()-1,4).getDisplayValues();
+  const regions=[],seen={};
+  const requested=digest_(password,'regional-manual-option');
+  records.forEach(row=>{
+    const stored=String(row[3]||'').trim();
+    // 忽略空白、過短、公式字串；禁止低強度密碼被意外啟用。
+    if(stored.length<12||stored.length>128||stored[0]==='=')return;
+    if(!safeEquals_(requested,digest_(stored,'regional-manual-option')))return;
+    const country=String(row[0]||'').trim(),unit=String(row[1]||'').trim(),
+      district=String(row[2]||'').trim();
+    if(!country||!unit||!district)return;
+    const key=regionKey_(country,unit,district);
+    if(!seen[key]){seen[key]=true;regions.push({country,unit,district});}
+  });
+  if(regions.length>100)throw new Error('此密碼對應超過100個區域，請聯絡管理員');
+  return regions;
+}
 function regionalLookup_(payload){
   requireSecuritySetup_();
-  const password=String(payload.regionalPassword||'');
-  if(!/^[a-f0-9]{64}$/i.test(password))throw new Error('查詢密碼錯誤');
+  const password=String(payload.regionalPassword||'').trim();
+  // 相容舊版核發的64位密碼，以及選項設定D欄可手動輸入的12～128字密碼。
+  if(password.length<12||password.length>128)throw new Error('查詢密碼錯誤');
   const cache=CacheService.getScriptCache();
   // 限制同一錯誤密碼的重複嘗試；不把原始密碼放進快取鍵。
   const cacheKey='regional_fail_'+digest_(password,'region-attempt').slice(0,40);
   if(Number(cache.get(cacheKey)||0)>=8)throw new Error('嘗試次數過多，請稍後再試');
-  const sh=regionalAccessSheet_(),last=sh.getLastRow();
-  if(last<2)throw new Error('查詢密碼錯誤');
-  const rows=sh.getRange(2,1,last-1,REGIONAL_ACCESS_HEADERS.length).getValues();
-  let credential=null;
-  for(const row of rows){
-    if(String(row[4])!=='有效')continue;
-    if(safeEquals_(digest_(password,String(row[1])),String(row[2]))){credential=row;break;}
+  // 優先使用「選項設定」D欄的手動密碼；不從前端讀取任何授權範圍。
+  const optionRegions=optionPasswordRegions_(password);
+  let allowed=optionRegions;
+  // 保留舊版管理員核發的密碼，避免既有憑證升級後失效。
+  if(!allowed.length){
+    const sh=sheet_().getSheetByName('區域查詢授權');
+    if(sh&&sh.getLastRow()>1&&/^[a-f0-9]{64}$/i.test(password)){
+      const rows=sh.getRange(2,1,sh.getLastRow()-1,REGIONAL_ACCESS_HEADERS.length).getValues();
+      for(const row of rows){
+        if(String(row[4])!=='有效')continue;
+        if(safeEquals_(digest_(password,String(row[1])),String(row[2]))){
+          allowed=parseRegionalScope_(JSON.parse(String(row[3])));break;
+        }
+      }
+    }
   }
-  if(!credential){
+  if(!allowed.length){
     cache.put(cacheKey,String(Number(cache.get(cacheKey)||0)+1),900);
     throw new Error('查詢密碼錯誤或已停用');
   }
   cache.remove(cacheKey);
-  // 必須使用儲存在管理端的允許區域，不能接受前端傳入的國別／區域作為權限。
-  const allowed=parseRegionalScope_(JSON.parse(String(credential[3])));
   const results=allowed.map(x=>regionViewRows_(x.country,x.unit,x.district));
   const details=[],summary=[];
   results.forEach(x=>{
