@@ -667,7 +667,7 @@ function adminReviewPending(){
     const response=ui.prompt('選擇要審核的申請','輸入清單序號（例如 1），或貼上完整申請 UUID：',ui.ButtonSet.OK_CANCEL);
     if(response.getSelectedButton()!==ui.Button.OK)return {ok:false,cancelled:true};
     const selected=response.getResponseText().trim();
-    const choice=/^\\d{1,2}$/.test(selected)?display[Number(selected)-1]:null;
+    const choice=/^\d{1,2}$/.test(selected)?display[Number(selected)-1]:null;
     const id=choice?choice.requestId:selected;
     if(!pending.some(item=>item.requestId===id)){
       ui.alert('找不到待審核申請','請確認輸入的是清單中的申請編號，並重新操作。',ui.ButtonSet.OK);
