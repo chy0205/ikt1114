@@ -476,3 +476,105 @@ function enrollLegacyReport(reportId){
     return {id:reportId,lookupPassword:secret.password};
   }finally{lock.releaseLock();}
 }
+
+/**
+ * ADMINISTRATOR ONLY. Never add these functions to doGet/doPost.
+ * Uses Session.getEffectiveUser() plus ADMIN_EMAILS Script Property.
+ * The admin editor must verify the requester independently before resetting credentials.
+ * Query by UUID, not by name. Do not expose photo links to the public API.
+ */
+function adminLookupReport(reportId){
+  const admin=requireAdmin_();
+  requireSecuritySetup_();
+  const id=String(reportId||'').trim();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+    throw new Error('請提供完整的回報 UUID');
+  const index=findIndex_(id);
+  // Older reports may not be enrolled yet. The admin can see them but cannot reset
+  // until verification/enrollment, avoiding creating a secret for unknown people.
+  const types=index?[String(index.values[1])]:Object.keys(TYPES);
+  const matches=types.map(type=>({type,report:findReport_(type,id)})).filter(x=>x.report);
+  if(matches.length!==1)throw new Error('找不到唯一的原始回報；請先核對各類工作表');
+  const item=matches[0],info={
+    id:id,type:item.type,sheet:TYPES[item.type].sheet,
+    status:index?String(index.values[4]):'舊版尚未建立查詢憑證',
+    hasLookupCredentials:!!index,
+    version:index?Number(index.values[5]):null,
+    fields:item.report.values,photoCount:item.report.photos.length,
+    pendingChange:index?pendingChange_(id):false
+  };
+  // Administrative access is logged. No password, salt or hash in log entries.
+  auditSheet_().appendRow([new Date(),'admin_lookup',id,'',admin,'',JSON.stringify({
+    type:info.type,status:info.status,photoCount:info.photoCount
+  }),'管理員查詢回報']);
+  return info;
+}
+/**
+ * Identity verification is an out-of-band responsibility, not self-assertion.
+ * Caller must supply a specific note recording how the requester was verified.
+ * Password plaintext is returned ONCE, never written to Sheets or logs.
+ * Existing reports and photos are preserved, previous password is invalidated.
+ * Pending change requests remain pending but their version is unaffected.
+ */
+function resetLookupPassword(reportId,verificationNote){
+  const admin=requireAdmin_();
+  requireSecuritySetup_();
+  const id=String(reportId||'').trim();
+  const reason=String(verificationNote||'').trim();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+    throw new Error('請提供完整的回報 UUID');
+  if(reason.length<12||reason.length>500)
+    throw new Error('請填寫至少12字的身分核實記錄（確認方式、對象與原因），最多500字');
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    let idx=findIndex_(id);
+    const reportTypes=idx?[String(idx.values[1])]:Object.keys(TYPES);
+    const matches=reportTypes.filter(type=>findReport_(type,id));
+    if(matches.length!==1)throw new Error('找不到唯一的原始回報，停止重設');
+    if(idx&&String(idx.values[4])==='已取消')throw new Error('已取消回報不可重設查詢密碼');
+    const secret=issueSecret_();
+    const now=new Date();
+    const indexSh=indexSheet_();
+    // Audit before modifying the credential to avoid unlogged rotations.
+    // The audit record contains neither the new secret nor the old hash/salt.
+    auditSheet_().appendRow([now,idx?'credential_reset':'legacy_credential_issue',
+      id,'',admin,'',JSON.stringify({type:matches[0],version:idx?Number(idx.values[5]):1}),
+      safeText_(reason)]);
+    if(idx){
+      // Update only salt and hash. Preserve status, creation timestamp and
+      // report version so pending correction requests are not invalidated.
+      indexSh.getRange(idx.row,3,1,2).setValues([[secret.salt,secret.hash]]);
+      indexSh.getRange(idx.row,8).setValue(now);
+    }else{
+      indexSh.appendRow([id,matches[0],secret.salt,secret.hash,'已回報',1,now,now]);
+    }
+    return {id,lookupPassword:secret.password,
+      message:'新密碼僅於本次執行結果顯示，原密碼已失效。請以安全方式交付經核實的回報者。'};
+  }finally{lock.releaseLock();}
+}
+/**
+ * Admin editor convenience: select report and verification note in Script
+ * Properties: ADMIN_TARGET_ID and ADMIN_VERIFICATION_NOTE (never a password).
+ * Use adminLookupSelected() to inspect, then resetLookupPasswordSelected().
+ * This avoids editing source or accidentally exposing a password in GitHub.
+ * Do not store the returned password in Script Properties.
+ */
+function adminLookupSelected(){
+  requireAdmin_();
+  const id=PropertiesService.getScriptProperties().getProperty('ADMIN_TARGET_ID');
+  const result=adminLookupReport(id);
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+function resetLookupPasswordSelected(){
+  requireAdmin_();
+  const props=PropertiesService.getScriptProperties();
+  const id=props.getProperty('ADMIN_TARGET_ID');
+  const note=props.getProperty('ADMIN_VERIFICATION_NOTE');
+  const result=resetLookupPassword(id,note);
+  // Clear the target and reason to reduce accidental repeated rotations.
+  props.deleteProperty('ADMIN_TARGET_ID');
+  props.deleteProperty('ADMIN_VERIFICATION_NOTE');
+  Logger.log('已重設回報 '+result.id+' 的密碼。新密碼僅於本次函式回傳值可取得。');
+  return result;
+}
