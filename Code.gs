@@ -575,6 +575,9 @@ function resetLookupPasswordSelected(){
   // Clear the target and reason to reduce accidental repeated rotations.
   props.deleteProperty('ADMIN_TARGET_ID');
   props.deleteProperty('ADMIN_VERIFICATION_NOTE');
-  Logger.log('已重設回報 '+result.id+' 的密碼。新密碼僅於本次函式回傳值可取得。');
+  // Apps Script 編輯器不會自動顯示函式回傳值。管理員須在執行記錄
+  // 立即複製此一次性密碼，避免將密碼保存於試算表或 Script Properties。
+  // 注意：擁有專案編輯權限的人也可能查看執行記錄，務必限制專案存取。
+  Logger.log('管理員一次性查詢憑證（請立即安全交付且勿轉貼）：回報編號='+result.id+'；新密碼='+result.lookupPassword);
   return result;
 }
