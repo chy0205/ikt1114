@@ -105,7 +105,7 @@ function updateProgress(){
 submitButton.classList.add('hidden');
 function field(key) {
   const outer=document.createElement('div');outer.className='field';outer.id='wrap-'+key;
-  const label=document.createElement('label');label.htmlFor=key;label.textContent=displayLabel(key)+' *';outer.append(label);
+  const label=document.createElement('label');label.htmlFor=key;label.textContent=displayLabel(key)+(key==='files'&&['family','public'].includes(typeField.value)?'':' *');outer.append(label);
   let input;
   if(['country','unit','district','classType','session'].includes(key)) {
     input=document.createElement('select');input.add(new Option('請選擇'+displayLabel(key),''));
