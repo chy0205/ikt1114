@@ -653,17 +653,22 @@ function adminReviewPending(){
       ui.alert('目前沒有待審核申請','「修改申請」分頁目前沒有狀態為待審核的紀錄。',ui.ButtonSet.OK);
       return {ok:true,pending:0};
     }
-    const display=pending.slice(0,15);
-    const intro='目前共 '+pending.length+' 筆待審核。以下列出前 '+display.length+
-      ' 筆（最新申請不會自動優先）：\n\n'+
+    const ordered=pending.slice().sort((a,b)=>String(b.submittedAt).localeCompare(String(a.submittedAt)));
+    const display=ordered.slice(0,15);
+    const modifications=pending.filter(item=>item.type==='modify').length;
+    const cancellations=pending.filter(item=>item.type==='cancel').length;
+    const intro='待審核共 '+pending.length+' 筆（修改 '+modifications+'、取消 '+cancellations+'）。'+
+      '\n以下列出最新 '+display.length+' 筆：\n\n'+
       display.map((item,i)=>(i+1)+'. '+(item.type==='cancel'?'取消':'修改')+
         '｜'+item.submittedAt+'\n申請編號：'+item.requestId+
         '\n回報編號：'+item.reportId).join('\n\n')+
-      '\n\n請輸入要審核的「申請編號」，不要輸入回報編號。';
+      '\n\n輸入 1～'+display.length+' 可選擇以上申請；也可直接輸入任一待審核申請 UUID。';
     ui.alert('待審核申請清單',intro,ui.ButtonSet.OK);
-    const response=ui.prompt('選擇要審核的申請','請貼上申請編號（UUID）：',ui.ButtonSet.OK_CANCEL);
+    const response=ui.prompt('選擇要審核的申請','輸入清單序號（例如 1），或貼上完整申請 UUID：',ui.ButtonSet.OK_CANCEL);
     if(response.getSelectedButton()!==ui.Button.OK)return {ok:false,cancelled:true};
-    const id=response.getResponseText().trim();
+    const selected=response.getResponseText().trim();
+    const choice=/^\\d{1,2}$/.test(selected)?display[Number(selected)-1]:null;
+    const id=choice?choice.requestId:selected;
     if(!pending.some(item=>item.requestId===id)){
       ui.alert('找不到待審核申請','請確認輸入的是清單中的申請編號，並重新操作。',ui.ButtonSet.OK);
       return {ok:false,error:'not_pending'};
