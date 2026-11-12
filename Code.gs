@@ -157,6 +157,41 @@ function safeText_(x) {
   const s = String(x === undefined || x === null ? '' : x).trim();
   return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
 }
+/**
+ * 2026/11/12 hotfix: 儲存報表照片。
+ * 先完成所有照片建立，再將網址寫入回報列；上傳中途失敗時，
+ * 僅回收「這次」剛建立的照片，絕不碰觸既有回報檔案。
+ */
+function storePhotos_(files,reportId,created){
+  const list=files||[];
+  if(!list.length)return [];
+  if(!Array.isArray(list)||list.length>CONFIG.MAX_FILES)throw new Error('照片張數不符合限制');
+  const extension={
+    'image/jpeg':'jpg','image/png':'png','image/webp':'webp',
+    'image/heic':'heic','image/heif':'heif'
+  };
+  const folder=DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
+  const urls=[];
+  try{
+    list.forEach(function(file,index){
+      const ext=extension[file.mimeType];
+      if(!ext||!file.data||typeof file.data!=='string')throw new Error('照片格式或內容不正確');
+      const bytes=Utilities.base64Decode(file.data);
+      if(!bytes.length||bytes.length>CONFIG.MAX_FILE_BYTES)throw new Error('單張照片不可超過5MB');
+      const name=reportId+'_'+(index+1)+'.'+ext;
+      const blob=Utilities.newBlob(bytes,file.mimeType,name);
+      const saved=folder.createFile(blob);
+      created.push(saved);
+      urls.push(saved.getUrl());
+    });
+    return urls;
+  }catch(err){
+    // 只回收本次未完成的照片，避免留下孤兒檔案。
+    created.forEach(function(file){try{file.setTrashed(true);}catch(ignore){}});
+    created.length=0;
+    throw err;
+  }
+}
 function submit_(p) {
   validate_(p);
   requireSecuritySetup_();
