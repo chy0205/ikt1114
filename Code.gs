@@ -6,8 +6,8 @@ const CONFIG = {
 };
 const TYPES = {
   personal: { sheet: '個人渡眾', fields: ['country','unit','district','guide','eventDate','count'], photo: true },
-  family: { sheet: '家堂渡眾', fields: ['country','unit','district','temple','host','eventDate','count'], photo: false },
-  public: { sheet: '公堂渡眾', fields: ['country','unit','district','reporterName','temple','eventDate','count'], photo: false },
+  family: { sheet: '家堂渡眾', fields: ['country','unit','district','temple','host','eventDate','count'], photo: true, photoRequired: false },
+  public: { sheet: '公堂渡眾', fields: ['country','unit','district','reporterName','temple','eventDate','count'], photo: true, photoRequired: false },
   personalClass: { sheet: '個人成全進階班', fields: ['country','unit','district','classType','mentor','student','eventDate','session'], photo: true },
   publicClass: { sheet: '公堂進階班', fields: ['country','unit','district','reporterName','temple','classType','count'], photo: true },
   temple: { sheet: '成全安堂完成', fields: ['country','unit','district','mentor','host','eventDate'], photo: true },
@@ -52,6 +52,14 @@ function ensureSchema_(sh,type) {
     return;
   }
   const existing = sh.getRange(1,1,1,Math.max(sh.getLastColumn(),expected.length)).getDisplayValues()[0];
+  // 家堂／公堂渡眾原本沒有照片欄。若其餘欄名完全一致，只在末尾安全補上照片連結。
+  if (['family','public'].includes(type) &&
+      expected.length >= 1 && expected[expected.length-1] === '照片連結' &&
+      expected.slice(0,-1).every((label,i)=>label===existing[i]) &&
+      existing.slice(expected.length-1).every(v=>v==='')) {
+    sh.getRange(1,expected.length).setValue('照片連結');
+    return;
+  }
   const matches = expected.every((label,i)=>label===existing[i]) &&
     existing.slice(expected.length).every(v=>v==='');
   if (!matches) throw new Error('「'+sh.getName()+'」仍是舊版欄位格式；為保護原有成績，請先備份並執行 migrateReportSheets()，不可直接混用新舊版。');
@@ -81,11 +89,11 @@ function migrateReportSheets() {
     if (heads.length===expected.length && heads.every((v,i)=>v===expected[i])) return;
     const mapped=heads.map(h=>legacy[h]||null);
     const keys=['id','submitted','type'].concat(TYPES[type].fields,TYPES[type].photo?['files']:[]);
-    if (!keys.every(k=>mapped.includes(k))) {
+    if (!keys.every(k=>mapped.includes(k) || (k==='files'&&['family','public'].includes(type)))) {
       throw new Error('無法辨認「'+sh.getName()+'」舊版欄位，停止轉換；請手動核對。');
     }
     const converted=rows.slice(1).filter(row=>row.some(x=>x!==''&&x!==null))
-      .map(row=>keys.map(key=>row[mapped.indexOf(key)]));
+      .map(row=>keys.map(key=>mapped.includes(key)?row[mapped.indexOf(key)]:(key==='files'?'':null)));
     // 先建立完整備份，原始分頁內容保留在備份中。
     const backupName=('備份_'+sh.getName()+'_'+Utilities.formatDate(new Date(),'Asia/Taipei','MMdd_HHmmss')).slice(0,99);
     const backup=sh.copyTo(ss).setName(backupName);
@@ -128,7 +136,7 @@ function validate_(p) {
   if (p.eventDate && (!/^\d{4}-\d{2}-\d{2}$/.test(p.eventDate) || isNaN(Date.parse(p.eventDate)))) throw new Error('日期格式錯誤');
   const files = p.files || [];
   if (!Array.isArray(files) || files.length > CONFIG.MAX_FILES) throw new Error('最多可上傳5張照片');
-  if (spec.photo && !files.length) throw new Error('此回報類別必須上傳照片');
+  if (spec.photo && spec.photoRequired !== false && !files.length) throw new Error('此回報類別必須上傳照片');
   files.forEach(f => {
     if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(f.mimeType)) throw new Error('僅接受照片檔案');
     if (!f.data || f.data.length > Math.ceil(CONFIG.MAX_FILE_BYTES * 4 / 3) + 100) throw new Error('照片過大或內容無效');
