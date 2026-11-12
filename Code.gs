@@ -1325,19 +1325,20 @@ function adminIntegrityCheckPrompt(){
  * 取消已核准不計入；待審核照原始值計入，另標待審核筆數。
  * 不刪除或改寫六類原始回報、照片、索引與修改申請。
  */
-const SETTLEMENT_REGION_HEADERS=['國別','單位','區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
+const SETTLEMENT_REGION_HEADERS=['區域','國別','單位','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
   '個人成全進階班回報筆數','公堂進階班達標班員人數','成全安堂完成筆數',
   '有效回報筆數','待審核申請筆數','結算時間'];
 const SETTLEMENT_PERSON_HEADERS=['國別','單位','區域','姓名','角色',
   '個人渡眾人數','個人成全進階班回報筆數','成全安堂完成筆數',
   '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
-  '公堂進階班達標人數（回報人記錄）','個人成全進階班回報筆數（班員記錄）',
+  '公堂進階班達標人數（回報人記錄）',
   '有效相關回報筆數','結算時間'];
 const SETTLEMENT_ROLE_FIELDS={
   personal:[['guide','引師',5]],
   family:[['host','壇主',8]],
   public:[['reporterName','回報人',9]],
-  personalClass:[['mentor','成全者',6],['student','班員',11]],
+  // 班員不計入個人成績；只保留成全者角色的紀錄。
+  personalClass:[['mentor','成全者',6]],
   publicClass:[['reporterName','回報人',10]],
   temple:[['mentor','成全者',7]]
 };
@@ -1375,7 +1376,7 @@ function settlementRows_(){
         d=String(obj.district||'').trim();
       if(!c||!u||!d)throw new Error('回報缺少國別、單位或區域，停止結算：'+id);
       const areaKey=JSON.stringify([c,u,d]);
-      if(!regions[areaKey])regions[areaKey]=[c,u,d,0,0,0,0,0,0,0,0,stamp];
+      if(!regions[areaKey])regions[areaKey]=[d,c,u,0,0,0,0,0,0,0,0,stamp];
       const area=regions[areaKey];
       if(pending[id])area[10]+=pending[id];
       if(states[id]&&states[id].status==='已取消')return;
@@ -1391,10 +1392,10 @@ function settlementRows_(){
         const person=String(obj[role[0]]||'').trim();
         if(!person)return;
         const pkey=JSON.stringify([c,u,d,person,role[1]]);
-        if(!people[pkey])people[pkey]=[c,u,d,person,role[1],0,0,0,0,0,0,0,0,stamp];
+        if(!people[pkey])people[pkey]=[c,u,d,person,role[1],0,0,0,0,0,0,0,stamp];
         const out=people[pkey];
         out[role[2]]+=score;
-        out[12]+=1;
+        out[11]+=1;
       });
     });
   });
@@ -1410,19 +1411,45 @@ function settlementRows_(){
     pendingCount:Object.values(pending).reduce((n,v)=>n+v,0),
     missingIndex:Object.keys(seenIds).filter(id=>!states[id]).length,stamp};
 }
-function settlementSheet_(ss,title,headers,rows){
-  let sh=ss.getSheetByName(title);
-  if(sh){
-    const existing=sh.getRange(1,1,1,headers.length).getDisplayValues()[0];
-    if(existing.some((x,i)=>String(x)!==headers[i]))
-      throw new Error('「'+title+'」已有其他內容或舊表頭；為保護資料，停止覆寫');
-  }else{
-    sh=ss.insertSheet(title);
-  }
+// 舊版兩張結算表是系統衍生資料；只允許這兩種已知表頭升級。
+// 更換欄位前備份既有結算分頁，原始六類回報分頁永不動。
+const PREVIOUS_REGION_HEADERS=['國別','單位','區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
+  '個人成全進階班回報筆數','公堂進階班達標班員人數','成全安堂完成筆數',
+  '有效回報筆數','待審核申請筆數','結算時間'];
+const PREVIOUS_PERSON_HEADERS=['國別','單位','區域','姓名','角色',
+  '個人渡眾人數','個人成全進階班回報筆數','成全安堂完成筆數',
+  '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
+  '公堂進階班達標人數（回報人記錄）','個人成全進階班回報筆數（班員記錄）',
+  '有效相關回報筆數','結算時間'];
+function settlementSchema_(ss,title,expected){
+  const sh=ss.getSheetByName(title);
+  if(!sh)return {sheet:null,upgrade:false};
+  const width=Math.max(sh.getLastColumn(),expected.length);
+  const got=sh.getRange(1,1,1,width).getDisplayValues()[0];
+  const matches=(headers)=>headers.every((x,i)=>String(got[i]||'')===x)&&
+    got.slice(headers.length).every(x=>String(x||'')==='');
+  if(matches(expected))return {sheet:sh,upgrade:false};
+  const legacy=title==='區域成績結算'?PREVIOUS_REGION_HEADERS:PREVIOUS_PERSON_HEADERS;
+  if(matches(legacy))return {sheet:sh,upgrade:true};
+  throw new Error('「'+title+'」表頭不符合目前或前一版結算格式，為保護資料停止更新');
+}
+function backupSettlementBeforeUpgrade_(sh){
+  const ss=sh.getParent();
+  const stamp=Utilities.formatDate(new Date(),'Asia/Taipei','MMdd_HHmmss');
+  const name=('備份_'+sh.getName()+'_'+stamp).slice(0,99);
+  if(ss.getSheetByName(name))throw new Error('已存在同名結算備份，請稍後重試');
+  const backup=sh.copyTo(ss).setName(name);
+  backup.hideSheet();
+}
+function settlementSheet_(ss,title,headers,rows,checked){
+  let sh=checked.sheet;
+  if(!sh)sh=ss.insertSheet(title);
+  // 僅清除系統衍生結算表；前版的「班員」舊欄也須清空避免殘留。
+  const previousWidth=Math.max(sh.getLastColumn(),headers.length);
   const needed=rows.length+1,width=headers.length;
   if(sh.getMaxColumns()<width)sh.insertColumnsAfter(sh.getMaxColumns(),width-sh.getMaxColumns());
   if(sh.getMaxRows()<needed)sh.insertRowsAfter(sh.getMaxRows(),needed-sh.getMaxRows());
-  sh.getRange(1,1,sh.getMaxRows(),width).clearContent();
+  sh.getRange(1,1,sh.getMaxRows(),previousWidth).clearContent();
   sh.getRange(1,1,1,width).setValues([headers]);
   if(rows.length)sh.getRange(2,1,rows.length,width).setValues(rows.map(row=>row.map(value=>
     typeof value==='string'?safeRegionCell_(value):value)));
@@ -1436,17 +1463,14 @@ function recalculateScores(){
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   try{
     const ss=sheet_(),data=settlementRows_();
-    // Validate both target tabs before writing either.
-    [['個人成績結算',SETTLEMENT_PERSON_HEADERS],['區域成績結算',SETTLEMENT_REGION_HEADERS]]
-      .forEach(pair=>{
-        const sh=ss.getSheetByName(pair[0]);
-        if(!sh)return;
-        const existing=sh.getRange(1,1,1,pair[1].length).getDisplayValues()[0];
-        if(existing.some((x,i)=>String(x)!==pair[1][i]))
-          throw new Error('「'+pair[0]+'」不是系統專用結算表，停止更新');
-      });
-    settlementSheet_(ss,'個人成績結算',SETTLEMENT_PERSON_HEADERS,data.personal);
-    settlementSheet_(ss,'區域成績結算',SETTLEMENT_REGION_HEADERS,data.regional);
+    // 先驗證兩個結算分頁，確保非系統資料不會被覆寫。
+    const personalSchema=settlementSchema_(ss,'個人成績結算',SETTLEMENT_PERSON_HEADERS);
+    const regionSchema=settlementSchema_(ss,'區域成績結算',SETTLEMENT_REGION_HEADERS);
+    // 升級既有衍生表前保留快照，不影響原始成績與照片。
+    if(personalSchema.upgrade)backupSettlementBeforeUpgrade_(personalSchema.sheet);
+    if(regionSchema.upgrade)backupSettlementBeforeUpgrade_(regionSchema.sheet);
+    settlementSheet_(ss,'個人成績結算',SETTLEMENT_PERSON_HEADERS,data.personal,personalSchema);
+    settlementSheet_(ss,'區域成績結算',SETTLEMENT_REGION_HEADERS,data.regional,regionSchema);
     auditSheet_().appendRow([new Date(),'settlement_refresh','','',admin,'',JSON.stringify({
       people:data.personal.length,regions:data.regional.length,pending:data.pendingCount,
       legacyWithoutIndex:data.missingIndex
