@@ -1424,7 +1424,8 @@ function settlementSheet_(ss,title,headers,rows){
   if(sh.getMaxRows()<needed)sh.insertRowsAfter(sh.getMaxRows(),needed-sh.getMaxRows());
   sh.getRange(1,1,sh.getMaxRows(),width).clearContent();
   sh.getRange(1,1,1,width).setValues([headers]);
-  if(rows.length)sh.getRange(2,1,rows.length,width).setValues(rows);
+  if(rows.length)sh.getRange(2,1,rows.length,width).setValues(rows.map(row=>row.map(value=>
+    typeof value==='string'?safeRegionCell_(value):value)));
   sh.setFrozenRows(1);
   sh.getRange(1,1,1,width).setFontWeight('bold').setBackground('#e6f1e8');
   if(sh.getFilter())sh.getFilter().remove();
