@@ -72,13 +72,13 @@ textarea{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px sol
       <div class="field"><label for="changeReason">申請原因 *</label><input id="changeReason" required maxlength="500" placeholder="請具體說明填錯或需要取消的原因"></div>
       <div class="button-row"><button type="submit" id="sendChange">送出申請</button><button type="button" id="closeChange" class="button-outline">返回</button></div>
     </form>
-    <form id="cancelRequestForm" class="hidden lookup-card">
+    <form id="cancelRequestForm" class="hidden lookup-card" novalidate>
       <h3 style="margin:0 0 10px">申請取消這筆回報</h3>
       <p class="muted-note">取消需由管理員審核，送出申請不會立即刪除資料或照片；核准後原始回報將標示「已取消」，不再列入有效成績。</p>
       <div class="field"><label for="cancelRequestReason">取消原因 *</label>
         <textarea id="cancelRequestReason" required minlength="4" maxlength="500" rows="3" placeholder="請填寫至少4個字，說明為何需要取消這筆回報"></textarea>
       </div>
-      <div class="button-row"><button type="submit" id="submitCancelRequest">送出取消申請</button>
+      <div class="button-row"><button type="button" id="submitCancelRequest">送出取消申請</button>
         <button type="button" id="closeCancelRequest" class="button-outline">返回</button></div>
       <div id="cancelRequestStatus" role="status" aria-live="polite" class="status"></div>
     </form>
@@ -393,6 +393,8 @@ function renderLookup(data){
   el('lookupResult').classList.remove('hidden');
   el('changeForm').classList.add('hidden');
   el('cancelRequestForm').classList.add('hidden');
+  el('cancelRequestStatus').textContent='';
+  el('cancelRequestReason').value='';
   const info=el('lookupSummary');info.replaceChildren();
   const h=document.createElement('h3');h.textContent='回報資料';h.style.margin='0 0 8px';info.append(h);
   const badge=document.createElement('span');badge.className='readonly-tag';badge.textContent='狀態：'+data.status;info.append(badge);
@@ -463,27 +465,48 @@ el('openCancel').addEventListener('click',()=>{
   el('cancelRequestReason').focus();
 });
 el('closeCancelRequest').addEventListener('click',()=>el('cancelRequestForm').classList.add('hidden'));
-el('cancelRequestForm').addEventListener('submit',async e=>{
-  e.preventDefault();
+async function submitCancelRequest_(){
+  const button=el('submitCancelRequest');
+  if(button.disabled)return;
   const report=foundReport;
-  if(!report||report.hasPendingRequest||report.status==='已取消')return;
+  if(!report){
+    statusMessage('cancelRequestStatus','請先使用回報編號與密碼查詢回報資料。',true);
+    return;
+  }
+  if(report.hasPendingRequest||report.status==='已取消'){
+    statusMessage('cancelRequestStatus',report.hasPendingRequest
+      ?'這筆回報已有待審核的申請，請等待管理員處理。'
+      :'這筆回報已取消，無法重複申請。',true);
+    return;
+  }
   const reason=el('cancelRequestReason').value.trim();
   if(reason.length<4||reason.length>500){
-    statusMessage('cancelRequestStatus','請填寫4～500字的取消原因。',true);return;
+    statusMessage('cancelRequestStatus','請填寫4～500字的取消原因，填好後再按送出。',true);
+    el('cancelRequestReason').focus();
+    return;
+  }
+  const lookupPassword=el('lookupPassword').value;
+  if(!lookupPassword){
+    statusMessage('cancelRequestStatus','查詢密碼已清空，請重新輸入回報查詢密碼。',true);
+    return;
   }
   if(!confirm('確定針對這筆回報提出取消申請？管理員核准後才會標記取消，原始資料及照片仍保留。'))return;
-  const button=el('submitCancelRequest');button.disabled=true;button.textContent='送出中…';
+  button.disabled=true;button.textContent='取消申請送出中…';
+  statusMessage('cancelRequestStatus','正在送出取消申請，請勿重複點擊。');
   try{
     const result=await apiPost({action:'changeRequest',changeType:'cancel',
-      id:report.id,lookupPassword:el('lookupPassword').value,
+      id:report.id,lookupPassword,
       version:report.version,changes:{},reason});
     report.hasPendingRequest=true;
     renderLookup(report);
     statusMessage('lookupStatus','取消申請已送出，狀態：待審核。申請編號：'+result.requestId);
   }catch(err){
-    statusMessage('cancelRequestStatus','取消申請未確認成功：'+err.message+'。請先查詢是否已有待審核申請，勿重複送出。',true);
+    statusMessage('cancelRequestStatus','取消申請未確認成功：'+err.message+
+      '。請先重新查詢是否已有待審核申請，避免重複送出。',true);
   }finally{button.disabled=false;button.textContent='送出取消申請';}
-});
+}
+el('submitCancelRequest').addEventListener('click',submitCancelRequest_);
+el('cancelRequestForm').addEventListener('submit',e=>{e.preventDefault();submitCancelRequest_();});
 el('closeChange').addEventListener('click',()=>el('changeForm').classList.add('hidden'));
 el('changeForm').addEventListener('submit',async e=>{
   e.preventDefault();if(!foundReport)return;
