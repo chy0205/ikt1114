@@ -110,12 +110,20 @@ function doGet(e) {
 }
 function doPost(e) {
   try {
+    if (!e || !e.postData || !e.postData.contents) throw new Error('沒有收到資料');
     const payload = JSON.parse(e.postData.contents);
-    return json_(submit_(payload));
+    const action=payload.action || 'submit';
+    let result;
+    if(action==='submit') result=submit_(payload);
+    else if(action==='lookup') result=lookupReport_(payload);
+    else if(action==='changeRequest') result=requestChange_(payload);
+    else throw new Error('不支援的操作');
+    return json_(result);
   } catch (err) {
-    return json_({ok:false,error:String(err.message || err)});
+    return json_({ok:false,error:String(err.message||err)});
   }
 }
+
 function json_(value) { return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON); }
 function sheet_() { return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID); }
 function getOptions_() {
@@ -150,29 +158,31 @@ function safeText_(x) {
   return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
 }
 function submit_(p) {
-  const spec = validate_(p);
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  validate_(p);
+  requireSecuritySetup_();
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  const created=[];
   try {
-    const ss = sheet_();
-    let sh = ss.getSheetByName(spec.sheet);
-    if (!sh) sh = ss.insertSheet(spec.sheet);
-    ensureSchema_(sh,p.type);
-    const id = Utilities.getUuid();
-    const folder = DriveApp.getFolderById(CONFIG.DRIVE_FOLDER_ID);
-    const urls = [];
-    for (const f of (p.files || [])) {
-      const bytes = Utilities.base64Decode(f.data);
-      if (bytes.length > CONFIG.MAX_FILE_BYTES) throw new Error('單張照片不可超過5MB');
-      const ext = ({'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/heic':'heic','image/heif':'heif'})[f.mimeType];
-      const blob = Utilities.newBlob(bytes, f.mimeType, id + '_' + (urls.length + 1) + '.' + ext);
-      urls.push(folder.createFile(blob).getUrl());
+    const spec=TYPES[p.type],sh=reportSheet_(p.type),id=Utilities.getUuid();
+    const files=storePhotos_(p.files||[],id,created);
+    const pass=issueSecret_();
+    // 工作表仍保持現有每類專屬欄位；憑證及狀態分開存放在「回報索引」。
+    sh.appendRow(rowFor_(p.type,p,id,files));
+    try {
+      indexSheet_().appendRow([id,p.type,pass.salt,pass.hash,'待審核',1,new Date(),new Date()]);
+    }catch(err){
+      // 主表已寫入時不刪除原始資料，必須由管理員執行修復索引。
+      throw new Error('成績可能已儲存，但無法建立查詢索引。請勿重複送出，聯絡管理員並提供回報時間。');
     }
-    sh.appendRow(rowFor_(p.type,p,id,urls));
-    return {ok:true,id};
-  } finally { lock.releaseLock(); }
+    return {ok:true,id,lookupPassword:pass.password,reviewStatus:'待審核'};
+  } finally {lock.releaseLock();}
 }
+
 function setupSheets() {
+  initSecurity_();
+  indexSheet_();
+  changeSheet_();
+  auditSheet_();
   const ss = sheet_();
   let options = ss.getSheetByName('選項設定');
   if (!options) options = ss.insertSheet('選項設定');
@@ -183,4 +193,215 @@ function setupSheets() {
     if(!sh)sh=ss.insertSheet(spec.sheet);
     ensureSchema_(sh,type);
   });
+}
+
+/**
+ * 查詢與更正模組（V2）
+ * 公開路由僅 submit / lookup / changeRequest。
+ * 管理員核准或拒絕只可從受權 Apps Script 編輯器執行 reviewChangeRequest()。
+ */
+const INDEX_HEADERS=['回報編號','回報類別','查詢鹽值','查詢密碼雜湊','審核狀態','版本','建立時間','更新時間'];
+const CHANGE_HEADERS=['申請編號','回報編號','申請類型','原始版本','原內容JSON','申請內容JSON','申請理由','新照片連結JSON','狀態','申請時間','處理時間','管理員','處理說明'];
+const AUDIT_HEADERS=['時間','動作','回報編號','申請編號','管理員','修改前JSON','修改後JSON','備註'];
+function initSecurity_(){
+  const props=PropertiesService.getScriptProperties();
+  if(!props.getProperty('LOOKUP_PEPPER')){
+    const bytes=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,Utilities.getUuid()+Utilities.getUuid());
+    props.setProperty('LOOKUP_PEPPER',Utilities.base64EncodeWebSafe(bytes));
+  }
+}
+function requireSecuritySetup_(){
+  if(!PropertiesService.getScriptProperties().getProperty('LOOKUP_PEPPER'))throw new Error('尚未完成查詢安全初始化，請管理員執行 setupSheets()');
+}
+function managementSheet_(name,headers){
+  const ss=sheet_();let sh=ss.getSheetByName(name);
+  if(!sh)sh=ss.insertSheet(name);
+  if(sh.getLastRow()===0)sh.getRange(1,1,1,headers.length).setValues([headers]);
+  else {
+    const got=sh.getRange(1,1,1,headers.length).getDisplayValues()[0];
+    if(headers.some((h,i)=>h!==got[i]))throw new Error(name+' 欄位結構不符，停止操作');
+  }
+  return sh;
+}
+function indexSheet_(){return managementSheet_('回報索引',INDEX_HEADERS);}
+function changeSheet_(){return managementSheet_('修改申請',CHANGE_HEADERS);}
+function auditSheet_(){return managementSheet_('操作紀錄',AUDIT_HEADERS);}
+function digest_(password,salt){
+  const pepper=PropertiesService.getScriptProperties().getProperty('LOOKUP_PEPPER');
+  const bytes=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,salt+':'+password+':'+pepper,Utilities.Charset.UTF_8);
+  return bytes.map(b=>('0'+(b&255).toString(16)).slice(-2)).join('');
+}
+function issueSecret_(){
+  const salt=Utilities.getUuid()+Utilities.getUuid();
+  const password=Utilities.getUuid().replace(/-/g,'')+Utilities.getUuid().replace(/-/g,'');
+  return {password,salt,hash:digest_(password,salt)};
+}
+function safeEquals_(a,b){
+  const x=String(a),y=String(b);let diff=x.length^y.length;
+  for(let i=0;i<Math.max(x.length,y.length);i++)diff|=(x.charCodeAt(i)||0)^(y.charCodeAt(i)||0);
+  return diff===0;
+}
+function findIndex_(id){
+  const sh=indexSheet_(),last=sh.getLastRow();
+  if(last<2)return null;
+  const finder=sh.getRange(2,1,last-1,1).createTextFinder(String(id)).matchEntireCell(true).findNext();
+  if(!finder)return null;
+  const row=finder.getRow();
+  return {sheet:sh,row,values:sh.getRange(row,1,1,INDEX_HEADERS.length).getValues()[0]};
+}
+function reportSheet_(type){
+  const spec=TYPES[type];if(!spec)throw new Error('不支援的回報類別');
+  const ss=sheet_();let sh=ss.getSheetByName(spec.sheet);
+  if(!sh)sh=ss.insertSheet(spec.sheet);
+  ensureSchema_(sh,type);return sh;
+}
+function findReport_(type,id){
+  const sh=reportSheet_(type),last=sh.getLastRow();
+  if(last<2)return null;
+  const found=sh.getRange(2,1,last-1,1).createTextFinder(String(id)).matchEntireCell(true).findNext();
+  if(!found)return null;
+  const row=found.getRow(),names=headersFor_(type);
+  const vals=sh.getRange(row,1,1,names.length).getValues()[0];
+  const values={};
+  TYPES[type].fields.forEach((key,i)=>{
+    const raw=vals[i+3];
+    values[key]=raw instanceof Date?Utilities.formatDate(raw,'Asia/Taipei','yyyy-MM-dd'):String(raw===null||raw===undefined?'':raw);
+  });
+  return {sheet:sh,row,values,photos:TYPES[type].photo?String(vals[vals.length-1]||'').split('\n').filter(Boolean):[]};
+}
+function checkAccess_(p){
+  requireSecuritySetup_();
+  const id=String(p.id||'').trim(),password=String(p.lookupPassword||'');
+  if(!/^[a-f0-9-]{36}$/i.test(id)||password.length<20||password.length>200)throw new Error('查詢資料不正確');
+  const cache=CacheService.getScriptCache(),key='attempt:'+id;
+  const attempts=Number(cache.get(key)||0);
+  if(attempts>=8)throw new Error('驗證失敗次數過多，請15分鐘後再試');
+  const rec=findIndex_(id),ok=rec&&safeEquals_(digest_(password,String(rec.values[2])),String(rec.values[3]));
+  if(!ok){cache.put(key,String(attempts+1),900);throw new Error('回報編號或查詢密碼錯誤');}
+  cache.remove(key);
+  return rec;
+}
+function pendingChange_(id){
+  const sh=changeSheet_(),last=sh.getLastRow();
+  if(last<2)return false;
+  return sh.getRange(2,1,last-1,CHANGE_HEADERS.length).getValues().some(row=>String(row[1])===id&&String(row[8])==='待審核');
+}
+function lookupReport_(p){
+  const rec=checkAccess_(p),type=String(rec.values[1]),report=findReport_(type,p.id);
+  if(!report)throw new Error('回報資料不存在，請聯絡管理員');
+  return {ok:true,id:p.id,type,version:Number(rec.values[5]),status:String(rec.values[4]),
+    fields:report.values,photoCount:report.photos.length,hasPendingRequest:pendingChange_(p.id)};
+}
+function validateChange_(type,oldValues,patch){
+  if(!patch||typeof patch!=='object'||Array.isArray(patch))throw new Error('修改欄位無效');
+  const fields=TYPES[type].fields;
+  const keys=Object.keys(patch);
+  if(!keys.length)throw new Error('請至少修改一個欄位');
+  if(keys.some(k=>!fields.includes(k)||typeof patch[k]!=='string'))throw new Error('包含不允許修改的欄位');
+  const merged=Object.assign({},oldValues,patch,{type,files:[]});
+  // 原本必須附照片的回報，在修改既有文字內容時不要求重新上傳舊照片。
+  validateChangeFields_(type,merged);
+  return {merged,keys};
+}
+function validateChangeFields_(type,p){
+  const spec=TYPES[type];
+  spec.fields.forEach(k=>{if(!String(p[k]===undefined?'':p[k]).trim())throw new Error(k+' 為必填');});
+  if(p.classType&&!['禮行','義理','仁德'].includes(p.classType))throw new Error('進階班類別錯誤');
+  if(p.session&&(!Number.isInteger(Number(p.session))||Number(p.session)<1||Number(p.session)>24))throw new Error('上課次數錯誤');
+  if(p.count!==undefined&&(!/^\d+$/.test(String(p.count))||!Number.isSafeInteger(Number(p.count))))throw new Error('人數必須為非負整數');
+  if(p.eventDate){
+    const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(p.eventDate));
+    if(!m||Number(m[1])<1000||Number(m[1])>9999)throw new Error('日期必須為有效的四位數年份');
+    const d=new Date(0);d.setFullYear(+m[1],+m[2]-1,+m[3]);
+    if(d.getFullYear()!==+m[1]||d.getMonth()!==+m[2]-1||d.getDate()!==+m[3])throw new Error('日期不正確');
+  }
+  const list=getOptions_().options;
+  if(!list.some(x=>x.country===p.country&&x.unit===p.unit&&x.district===p.district))throw new Error('國家、單位或區域不在設定名單內');
+}
+function requestChange_(p){
+  const rec=checkAccess_(p),type=String(rec.values[1]),id=String(rec.values[0]);
+  if(String(rec.values[4])==='已取消')throw new Error('已取消的回報不可申請修改');
+  const action=String(p.changeType||'');
+  if(!['modify','cancel'].includes(action))throw new Error('申請類型無效');
+  const reason=String(p.reason||'').trim().slice(0,500);
+  if(reason.length<4)throw new Error('請填寫修改或取消原因（至少4字）');
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    // 重新核對最新狀態與版本，避免同時送出多個修改申請。
+    const latest=findIndex_(id);
+    if(!latest||String(latest.values[4])==='已取消'||pendingChange_(id))throw new Error('已有待審核申請或回報已取消');
+    const report=findReport_(type,id);
+    if(!report)throw new Error('找不到原始資料');
+    const patch=action==='modify'?p.changes:{};
+    if(action==='modify')validateChange_(type,report.values,patch);
+    if(action==='modify'&&Number(p.version)!==Number(latest.values[5]))throw new Error('回報資料已更新，請重新查詢後修改');
+    const requestId=Utilities.getUuid();
+    changeSheet_().appendRow([requestId,id,action,Number(latest.values[5]),JSON.stringify(report.values),
+      JSON.stringify(patch),safeText_(reason),'[]','待審核',new Date(),'','','']);
+    return {ok:true,requestId,status:'待審核'};
+  }finally{lock.releaseLock();}
+}
+/**
+ * 只可由管理員登入 Apps Script 編輯器，從函式手動呼叫。
+ * 不存在任何公開 API action 可執行核准。
+ * 例如：在編輯器執行 reviewFirstPending() 會拒絕（僅為防誤操作的占位函式）。
+ * 真正執行：在 Apps Script 編輯器建立暫時性執行函式，
+ *   function approveSelected(){reviewChangeRequest('申請UUID','approve','已核對');}
+ * 結束後刪除暫時函式，避免共用編輯者誤操作。
+ */
+function reviewChangeRequest(requestId,decision,note){
+  requireSecuritySetup_();
+  if(!['approve','reject'].includes(decision))throw new Error('只能核准或拒絕');
+  if(!/^[a-f0-9-]{36}$/i.test(String(requestId)))throw new Error('申請編號格式錯誤');
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try {
+    const cs=changeSheet_(),last=cs.getLastRow();
+    if(last<2)throw new Error('找不到申請');
+    const cell=cs.getRange(2,1,last-1,1).createTextFinder(requestId).matchEntireCell(true).findNext();
+    if(!cell)throw new Error('找不到申請');
+    const row=cell.getRow(),r=cs.getRange(row,1,1,CHANGE_HEADERS.length).getValues()[0];
+    if(String(r[8])!=='待審核')throw new Error('此申請已經處理');
+    const idx=findIndex_(r[1]);
+    if(!idx)throw new Error('回報索引遺失');
+    if(Number(idx.values[5])!==Number(r[3]))throw new Error('原始資料已變更，請重新核對申請');
+    const report=findReport_(String(idx.values[1]),String(r[1]));
+    if(!report)throw new Error('原始回報不見了');
+    const admin=Session.getEffectiveUser().getEmail()||'Apps Script 執行者';
+    const after=JSON.parse(JSON.stringify(report.values));
+    const patches=JSON.parse(String(r[5]));
+    if(decision==='approve'&&String(r[2])==='modify'){
+      validateChange_(String(idx.values[1]),report.values,patches);
+      Object.assign(after,patches);
+    }
+    const stamp=new Date();
+    // 先留下不可省略的審核軌跡，再修改原始工作表。
+    auditSheet_().appendRow([stamp,decision,String(r[1]),requestId,admin,JSON.stringify(report.values),JSON.stringify(after),safeText_(note||'')]);
+    if(decision==='approve'&&String(r[2])==='modify'){
+      const fields=TYPES[String(idx.values[1])].fields;
+      const write=fields.map(k=>(k==='count'||k==='session')?Number(after[k]):safeText_(after[k]));
+      report.sheet.getRange(report.row,4,1,fields.length).setValues([write]);
+    }
+    const status=decision==='approve'&&String(r[2])==='cancel'?'已取消':String(idx.values[4]);
+    idx.sheet.getRange(idx.row,5,1,4).setValues([[status,Number(idx.values[5])+1,idx.values[6],stamp]]);
+    cs.getRange(row,9,1,5).setValues([[decision==='approve'?'已核准':'已拒絕',stamp,admin,safeText_(note||''),'']].slice(0,1).map(a=>a.slice(0,5)));
+    return {ok:true,requestId,status:decision==='approve'?'已核准':'已拒絕'};
+  }finally{lock.releaseLock();}
+}
+/**
+ * 舊版回報沒有查詢密碼。此函式只能由 Apps Script 編輯者手動簽發，
+ * 必須先由管理員確認申請人就是原回報人，再以安全管道交付一次性查詢憑證。
+ * 不寫入原始成績工作表，不對外開放 API。
+ */
+function enrollLegacyReport(reportId){
+  requireSecuritySetup_();
+  if(!/^[a-f0-9-]{36}$/i.test(String(reportId)))throw new Error('回報編號格式錯誤');
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    if(findIndex_(reportId))throw new Error('此回報已有查詢憑證，不可再次簽發');
+    const matches=Object.keys(TYPES).filter(type=>findReport_(type,reportId));
+    if(matches.length!==1)throw new Error('查無唯一對應的歷史回報');
+    const secret=issueSecret_(),now=new Date();
+    indexSheet_().appendRow([reportId,matches[0],secret.salt,secret.hash,'待審核',1,now,now]);
+    return {id:reportId,lookupPassword:secret.password};
+  }finally{lock.releaseLock();}
 }
