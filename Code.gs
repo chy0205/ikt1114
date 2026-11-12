@@ -1334,7 +1334,7 @@ const SETTLEMENT_PERSON_HEADERS=['國別','單位','區域','姓名','角色',
   '公堂進階班達標人數（回報人記錄）','個人成全進階班回報筆數（班員記錄）',
   '有效相關回報筆數','結算時間'];
 const SETTLEMENT_ROLE_FIELDS={
-  personal:[['guide','引師',3]],
+  personal:[['guide','引師',5]],
   family:[['host','壇主',8]],
   public:[['reporterName','回報人',9]],
   personalClass:[['mentor','成全者',6],['student','班員',11]],
