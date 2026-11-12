@@ -382,8 +382,11 @@ function reviewChangeRequest(requestId,decision,note){
       report.sheet.getRange(report.row,4,1,fields.length).setValues([write]);
     }
     const status=decision==='approve'&&String(r[2])==='cancel'?'已取消':String(idx.values[4]);
-    idx.sheet.getRange(idx.row,5,1,4).setValues([[status,Number(idx.values[5])+1,idx.values[6],stamp]]);
-    cs.getRange(row,9,1,5).setValues([[decision==='approve'?'已核准':'已拒絕',stamp,admin,safeText_(note||''),'']].slice(0,1).map(a=>a.slice(0,5)));
+    idx.sheet.getRange(idx.row,5).setValue(status);
+    idx.sheet.getRange(idx.row,6).setValue(Number(idx.values[5])+1);
+    idx.sheet.getRange(idx.row,8).setValue(stamp);
+    cs.getRange(row,9).setValue(decision==='approve'?'已核准':'已拒絕');
+    cs.getRange(row,11,1,3).setValues([[stamp,admin,safeText_(note||'')]]);
     return {ok:true,requestId,status:decision==='approve'?'已核准':'已拒絕'};
   }finally{lock.releaseLock();}
 }
