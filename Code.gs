@@ -1094,20 +1094,38 @@ function regionalLookup_(payload){
  * 區域負責人先經密碼授權，再取回單筆目前欄位供編輯。
  * 不可由前端傳來的區域或類別自行提升權限。
  */
+/**
+ * 取得唯一原始回報。舊版回報可能尚未有「回報索引」，
+ * 仍必須先找到唯一存在的紀錄，才能讓區域負責人申請更正。
+ * 使用前須先以區域密碼驗證，並於返回前比對原始區域。
+ */
+function regionalReportSource_(id,idx){
+  const types=idx?[String(idx.values[1])]:Object.keys(TYPES);
+  if(types.some(type=>!TYPES[type]))throw new Error('回報索引類別有誤，請管理員核對');
+  const matches=[];
+  types.forEach(type=>{
+    // 不建立不存在的原始分頁；只讀取有紀錄的工作表。
+    if(!sheet_().getSheetByName(TYPES[type].sheet))return;
+    const report=findReport_(type,id);
+    if(report)matches.push({type,report});
+  });
+  if(matches.length!==1)throw new Error('找不到唯一對應的原始回報，請管理員核對');
+  return matches[0];
+}
 function regionalReport_(p){
   const allowed=regionalAllowed_(p.regionalPassword);
   const id=String(p.id||'').trim();
   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
     throw new Error('回報編號格式不正確');
   const idx=findIndex_(id);
-  if(!idx)throw new Error('找不到可修改的回報索引，請聯絡管理員');
-  const type=String(idx.values[1]),report=findReport_(type,id);
-  if(!report)throw new Error('找不到原始回報');
-  const f=report.values;
-  const within=allowed.some(x=>x.country===f.country&&x.unit===f.unit&&x.district===f.district);
-  if(!within)throw new Error('此回報不在授權區域內');
-  return {ok:true,id,type,version:Number(idx.values[5]),status:String(idx.values[4]),
-    fields:f,photoCount:report.photos.length,hasPendingRequest:pendingChange_(id)};
+  const source=regionalReportSource_(id,idx);
+  const f=source.report.values;
+  if(!allowed.some(x=>x.country===f.country&&x.unit===f.unit&&x.district===f.district))
+    throw new Error('此回報不在授權區域內');
+  return {ok:true,id,type:source.type,version:idx?Number(idx.values[5]):0,
+    status:idx?String(idx.values[4]):'已回報',
+    fields:f,photoCount:source.report.photos.length,hasPendingRequest:pendingChange_(id),
+    legacyWithoutIndex:!idx};
 }
 /**
  * 區域負責人只可申請修改自己目前授權區域內的既有回報文字資料。
@@ -1130,18 +1148,29 @@ function regionalChangeRequest_(p){
   try{
     // 在持鎖的寫入階段重新讀取 D 欄密碼與授權範圍，避免管理員剛撤銷權限。
     const latestAllowed=regionalAllowed_(p.regionalPassword);
-    const idx=findIndex_(id);
-    if(!idx)throw new Error('找不到可修改的回報索引');
-    if(String(idx.values[4])==='已取消')throw new Error('已取消的回報不可提出修改申請');
-    if(Number(idx.values[5])!==Number(p.version))throw new Error('回報資料已更新，請重新查詢');
+    let idx=findIndex_(id);
+    if(idx&&String(idx.values[4])==='已取消')throw new Error('已取消的回報不可提出修改申請');
+    if(Number(p.version)!==(idx?Number(idx.values[5]):0))
+      throw new Error('回報資料已更新，請重新查詢');
     if(pendingChange_(id))throw new Error('已有待審核申請，請等管理員處理');
-    const type=String(idx.values[1]),report=findReport_(type,id);
-    if(!report)throw new Error('原始回報不存在');
-    const f=report.values;
+    const source=regionalReportSource_(id,idx);
+    const type=source.type,report=source.report,f=report.values;
     if(!latestAllowed.some(x=>x.country===f.country&&x.unit===f.unit&&x.district===f.district))
       throw new Error('此回報已不在密碼授權範圍');
     validateChange_(type,f,patch);
     if(Object.keys(patch).every(k=>String(patch[k])===String(f[k])))throw new Error('修改內容與原始資料相同');
+    // 只有真正提交有效申請，才補建缺少的回報索引。
+    // 隨機密碼不向區域負責人顯示，也不寫入日誌；以後如需個別查詢，
+    // 應由管理員核實原回報者後再安全重設其專屬查詢密碼。
+    if(!idx){
+      const secret=issueSecret_(),now=new Date();
+      auditSheet_().appendRow([now,'regional_legacy_index',id,'','系統','',
+        JSON.stringify({type,location:[f.country,f.unit,f.district]}),
+        '區域負責人提出修改申請，為既有回報補建索引，不更動原始成績']);
+      indexSheet_().appendRow([id,type,secret.salt,secret.hash,'已回報',1,now,now]);
+      idx=findIndex_(id);
+      if(!idx)throw new Error('建立回報索引失敗，請管理員核對，勿重複送出');
+    }
     const requestId=Utilities.getUuid();
     changeSheet_().appendRow([requestId,id,'modify',Number(idx.values[5]),JSON.stringify(f),
       JSON.stringify(patch),safeText_('[區域負責人申請] '+reason),'[]','待審核',new Date(),'','','']);
