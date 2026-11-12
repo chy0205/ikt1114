@@ -142,7 +142,7 @@ function setShown(key,shown){
   const wrap=el('wrap-'+key),input=el(key);
   if(!wrap)return;
   wrap.classList.toggle('hidden',!shown);
-  if(input){input.disabled=!shown;input.required=shown;}
+  if(input){input.disabled=!shown;input.required=shown&&!(key==='files'&&['family','public'].includes(typeField.value));}
 }
 function showSteps(){
   const spec=TYPES[el('type').value];
