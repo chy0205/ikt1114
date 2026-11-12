@@ -1020,8 +1020,8 @@ function optionPasswordRegions_(password){
   const requested=digest_(password,'regional-manual-option');
   records.forEach(row=>{
     const stored=String(row[3]||'').trim();
-    // 忽略空白、過短、公式字串；禁止低強度密碼被意外啟用。
-    if(stored.length<12||stored.length>128||stored[0]==='=')return;
+    // 忽略空白、少於6碼、公式字串；建議管理員使用較長且不易猜的密碼。
+    if(stored.length<6||stored.length>128||stored[0]==='=')return;
     if(!safeEquals_(requested,digest_(stored,'regional-manual-option')))return;
     const country=String(row[0]||'').trim(),unit=String(row[1]||'').trim(),
       district=String(row[2]||'').trim();
@@ -1035,8 +1035,8 @@ function optionPasswordRegions_(password){
 function regionalLookup_(payload){
   requireSecuritySetup_();
   const password=String(payload.regionalPassword||'').trim();
-  // 相容舊版核發的64位密碼，以及選項設定D欄可手動輸入的12～128字密碼。
-  if(password.length<12||password.length>128)throw new Error('查詢密碼錯誤');
+  // 相容舊版核發的64位密碼，以及選項設定D欄可手動輸入的6～128字密碼。
+  if(password.length<6||password.length>128)throw new Error('查詢密碼錯誤');
   const cache=CacheService.getScriptCache();
   // 限制同一錯誤密碼的重複嘗試；不把原始密碼放進快取鍵。
   const cacheKey='regional_fail_'+digest_(password,'region-attempt').slice(0,40);
