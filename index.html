@@ -554,8 +554,12 @@ el('editableFields').addEventListener('change',e=>{
 });
 
 let regionalData=null;
-const REGIONAL_METRICS=['個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
-  '個人成全進階班筆數','公堂進階班達標人數','成全安堂筆數'];
+// 與 GAS 區域彙整表頭同步；新版會分別顯示禮行／義理／仁德，
+// 舊部署尚未更新時，也能依實際回傳欄位繪圖，不會錯置統計數字。
+function regionalMetrics_(){
+  const headers=regionalData?.summaryHeaders||[];
+  return headers.length>=5?headers.slice(3,-1):[];
+}
 function regionalAreaId_(country,unit,district){return JSON.stringify([country,unit,district]);}
 function regionalSetFilters_(data){
   const regionSelects=[el('regionalChartArea'),el('regionalDetailArea')];
@@ -574,9 +578,10 @@ function renderRegionalChart_(){
   const selected=el('regionalChartArea').value;
   const rows=regionalData.summary.filter(row=>selected==='all'||
     regionalAreaId_(row[0],row[1],row[2])===selected);
-  const sums=REGIONAL_METRICS.map((_,i)=>rows.reduce((sum,row)=>sum+(Number(row[i+3])||0),0));
+  const metrics=regionalMetrics_();
+  const sums=metrics.map((_,i)=>rows.reduce((sum,row)=>sum+(Number(row[i+3])||0),0));
   const cards=el('regionalStatsCards');cards.replaceChildren();
-  REGIONAL_METRICS.forEach((metric,i)=>{
+  metrics.forEach((metric,i)=>{
     const card=document.createElement('div');card.className='regional-stat';
     const title=document.createElement('small');title.textContent=metric;
     const value=document.createElement('strong');value.textContent=sums[i].toLocaleString('zh-TW');
@@ -584,7 +589,7 @@ function renderRegionalChart_(){
   });
   const container=el('regionalChartBars');container.replaceChildren();
   const max=Math.max(...sums,1);
-  REGIONAL_METRICS.forEach((metric,i)=>{
+  metrics.forEach((metric,i)=>{
     const item=document.createElement('div');item.className='regional-bar-item';
     const top=document.createElement('div');top.className='regional-bar-row';
     const label=document.createElement('span');label.textContent=metric;
@@ -593,7 +598,7 @@ function renderRegionalChart_(){
     const fill=document.createElement('div');fill.className='regional-bar-fill';
     fill.style.width=(sums[i]/max*100)+'%';track.append(fill);item.append(top,track);container.append(item);
   });
-  container.setAttribute('aria-label','各類成績：'+REGIONAL_METRICS.map((x,i)=>x+' '+sums[i]).join('；'));
+  container.setAttribute('aria-label','各類成績：'+metrics.map((x,i)=>x+' '+sums[i]).join('；'));
 }
 function renderRegionalDetails_(){
   if(!regionalData)return;
