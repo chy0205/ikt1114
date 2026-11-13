@@ -1344,7 +1344,7 @@ const SETTLEMENT_PERSON_HEADERS=['區域','姓名','個人渡眾','家壇渡眾'
   '個人成全進階班－禮行','個人成全進階班－義理','個人成全進階班－仁德','成全安堂回報'];
 const SETTLEMENT_PUBLIC_HEADERS=['區域','姓名','堂號','公堂渡眾',
   '公堂進階班－禮行','公堂進階班－義理','公堂進階班－仁德'];
-const SETTLEMENT_HALL_HEADERS=['區域','堂號','公堂渡眾',
+const SETTLEMENT_HALL_HEADERS=['堂號','公堂渡眾',
   '公堂進階班－禮行','公堂進階班－義理','公堂進階班－仁德'];
 // 班員不作為個人成績得分者。個人成全進階班按有效回報筆數，
 // 公堂進階班按「堂數達標之班員人數」；兩者單位不同。
@@ -1418,10 +1418,11 @@ function settlementRows_(){
         const name=String(obj.reporterName||'').trim();
         const temple=String(obj.temple||'').trim();
         if(!temple)throw new Error('公堂回報缺少堂號，停止結算：'+id);
-        // 堂號總計獨立於回報人，避免不同回報人漏計或重複。
-        const hallKey=JSON.stringify([c,u,d,temple]);
-        if(!halls[hallKey])halls[hallKey]=[d,temple,0,0,0,0];
-        halls[hallKey][type==='public'?2:3+levelIndex]+=score;
+        // 全場公堂總表只以堂號彙總，不依區域或回報人拆列。
+        // 同名堂號跨區將合併，管理員應確保堂號可唯一識別公堂。
+        const hallKey=temple;
+        if(!halls[hallKey])halls[hallKey]=[temple,0,0,0,0];
+        halls[hallKey][type==='public'?1:2+levelIndex]+=score;
         if(name){
           const key=JSON.stringify([c,u,d,name,temple]);
           if(!publicPeople[key])publicPeople[key]=[d,name,temple,0,0,0,0];
@@ -1473,6 +1474,9 @@ const PREVIOUS_V4_REGION_HEADERS=['區域','個人渡眾人數','家堂渡眾人
   '有效回報筆數','待審核申請筆數','結算時間'];
 const PREVIOUS_V4_PERSON_HEADERS=['區域','姓名','個人渡眾','家壇渡眾','個人成全進階班','成全安堂回報'];
 const PREVIOUS_V4_PUBLIC_HEADERS=['區域','姓名','堂號','公堂渡眾','公堂進階班回報'];
+// 上一版公堂總成績依區域及堂號呈現六欄，新版只有堂號及五欄。
+const PREVIOUS_V5_HALL_HEADERS=['區域','堂號','公堂渡眾',
+  '公堂進階班－禮行','公堂進階班－義理','公堂進階班－仁德'];
 function settlementSchema_(ss,title,expected){
   const sh=ss.getSheetByName(title);
   if(!sh)return {sheet:null,upgrade:false};
@@ -1485,7 +1489,8 @@ function settlementSchema_(ss,title,expected){
     [PREVIOUS_V4_REGION_HEADERS,PREVIOUS_V2_REGION_HEADERS,PREVIOUS_REGION_HEADERS]:
     title==='個人成績結算'?
     [PREVIOUS_V4_PERSON_HEADERS,PREVIOUS_V3_PERSON_HEADERS,PREVIOUS_V2_PERSON_HEADERS,PREVIOUS_PERSON_HEADERS]:
-    title==='公堂成績結算'?[PREVIOUS_V4_PUBLIC_HEADERS]:[];
+    title==='公堂成績結算'?[PREVIOUS_V4_PUBLIC_HEADERS]:
+    title==='公堂總成績結算'?[PREVIOUS_V5_HALL_HEADERS]:[];
   if(legacy.some(headers=>matches(headers)))return {sheet:sh,upgrade:true};
   throw new Error('「'+title+'」表頭不符合目前或前一版結算格式，為保護資料停止更新');
 }
