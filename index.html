@@ -331,10 +331,10 @@ function clearNextReportDetails_(){
 }
 function showSuccessfulReceipts_(id,password){
   successfulCount++;
-  successfulReceipts.push('第 '+successfulCount+' 筆｜回報編號：'+id+'\\n查詢密碼：'+(password||'後端未提供，請聯絡管理員'));
+  successfulReceipts.push('第 '+successfulCount+' 筆｜回報編號：'+id+'\n查詢密碼：'+(password||'後端未提供，請聯絡管理員'));
   el('accessReceipt').classList.remove('hidden');
   el('successCount').textContent=String(successfulCount);
-  el('accessText').textContent=successfulReceipts.join('\\n\\n');
+  el('accessText').textContent=successfulReceipts.join('\n\n');
   el('copyAccess').textContent='複製本次所有回報編號與查詢密碼';
 }
 form.addEventListener('submit',async e=>{
@@ -370,10 +370,10 @@ form.addEventListener('submit',async e=>{
     const data=await response.json();if(!data.ok)throw Error(data.error||'送出失敗');
     status.className='status success';
     status.textContent='第 '+(successfulCount+1)+' 筆回報成功！回報編號：'+data.id+
-      '\\n已保留回報類別與區域，清空本筆明細和照片，可以直接填下一筆。';
+      '\n已保留回報類別與區域，清空本筆明細和照片，可以直接填下一筆。';
     showSuccessfulReceipts_(data.id,data.lookupPassword);
     if(!data.lookupPassword)
-      status.textContent+='\\n後端未回傳查詢密碼，請聯絡管理員，且不要重複送出此筆成績。';
+      status.textContent+='\n後端未回傳查詢密碼，請聯絡管理員，且不要重複送出此筆成績。';
     clearNextReportDetails_();
   }catch(err){
     status.className='status error';status.textContent='回報未確認成功：'+err.message+'。請先向管理員確認是否已收到，避免重複回報。';
