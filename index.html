@@ -46,7 +46,7 @@ textarea{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px sol
 <button type="button" class="tab-button" id="tabReport" role="tab" aria-selected="true" aria-controls="reportPanel">新增成績回報</button>
 <button type="button" class="tab-button" id="tabLookup" role="tab" aria-selected="false" aria-controls="lookupPanel">查詢／申請修改</button>
 <button type="button" class="tab-button" id="tabRegional" role="tab" aria-selected="false" aria-controls="regionalPanel">區域負責人查詢</button>
-</div><div id="reportPanel" role="tabpanel"><div class="notice"><strong>連續回報同一區域</strong>只要選好一次回報類別、國家、單位及區域；每筆成功送出後，保留這些選擇，只清空該筆明細與照片，直接填下一筆。每筆均獨立回報，請保存每筆憑證。</div><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option></select></div><div id="dynamic"></div><button id="submit" type="submit">填寫完成，檢查回報資料</button>
+</div><div id="reportPanel" role="tabpanel"><div class="notice"><strong>連續回報同一區域</strong>只要選好一次回報類別、國家、單位及區域；每筆成功送出後，保留這些選擇，只清空該筆明細與照片，直接填下一筆。每筆均獨立回報，請保存每筆憑證。</div><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option></select></div><div id="dynamic"></div><p id="ipCountryHint" class="hint" aria-live="polite">國家可手動選擇。網站會嘗試透過網路 IP 預選國家，不會使用 GPS；IP 會提供給第三方定位服務。</p><button id="submit" type="submit">填寫完成，檢查回報資料</button>
 <div id="reportReview" class="lookup-card hidden" aria-live="polite">
   <h3 style="margin:0 0 8px">第二次確認：請逐項檢查</h3>
   <p class="muted-note">下方內容尚未送出。請確認姓名、區域、班別、人數、日期及照片都正確；有錯誤請按「返回修改」。</p>
@@ -171,6 +171,10 @@ const LABEL = {country:'國家',unit:'單位',district:'區域',reporterName:'�
   session:'第幾次上課',files:'上傳照片（最多5張，每張5MB）'};
 let options = [];
 let optionsReady = false;
+// IP 定位只供預選，永遠不能覆蓋使用者手動選定的國家。
+let inferredCountry = '';
+let countryManuallyChanged = false;
+let ipCountryLookupStarted = false;
 const el = id => document.getElementById(id);
 const form = el('form');
 const submitButton = el('submit');
@@ -301,6 +305,45 @@ function onUnitChange(){
   if(el('district'))populate('district',options.filter(o=>o.country===country&&o.unit===unit).map(o=>o.district));
   showSteps();
 }
+// ipwho.is returns a two-letter ISO country code; only allow configured countries.
+const IP_COUNTRY_NAMES={
+  AU:'澳洲',BD:'孟加拉',CA:'加拿大',TW:'台灣',ES:'西班牙',GB:'英國',
+  ID:'印度尼西亞',IN:'印度',JP:'日本',KH:'柬埔寨',KR:'韓國',MM:'緬甸',
+  MX:'墨西哥',MY:'馬來西亞',NP:'尼泊爾',PH:'菲律賓',SG:'新加坡',
+  TH:'泰國',US:'美國',VN:'越南'
+};
+function applyIPCountry_(){
+  const node=el('country');
+  if(!node||countryManuallyChanged||node.value||!inferredCountry||!optionsReady)return false;
+  const countries=unique(options.map(o=>o.country));
+  if(!countries.includes(inferredCountry))return false;
+  node.value=inferredCountry;
+  onCountryChange(); // also selects the sole unit, and populates district.
+  el('ipCountryHint').textContent='已依網路 IP 預選「'+inferredCountry+'」；如與實際回報國家不同，請直接在上方改選。';
+  return true;
+}
+async function detectIPCountryOnce_(){
+  if(ipCountryLookupStarted)return;
+  ipCountryLookupStarted=true;
+  // Timeout or free API rate limiting must never prevent normal submission.
+  const abort=new AbortController();
+  const timer=setTimeout(()=>abort.abort(),3500);
+  try{
+    const response=await fetch('https://ipwho.is/',{signal:abort.signal,cache:'no-store'});
+    if(!response.ok)throw Error('IP lookup unavailable');
+    const data=await response.json();
+    if(data.success!==true)return;
+    const code=String(data.country_code||'').toUpperCase();
+    const country=IP_COUNTRY_NAMES[code]||'';
+    if(!country||!unique(options.map(o=>o.country)).includes(country))return;
+    inferredCountry=country;
+    applyIPCountry_();
+  }catch(_err){
+    // Keep the original manual country selector untouched.
+  }finally{
+    clearTimeout(timer);
+  }
+}
 function renderType(){
   closeReportReview_();
   const target=el('dynamic');target.replaceChildren();el('status').textContent='';
@@ -308,11 +351,16 @@ function renderType(){
   const spec=TYPES[el('type').value];
   if(!spec){submitButton.classList.add('hidden');return;}
   for(const key of spec)target.append(field(key));
-  el('country').addEventListener('change',onCountryChange);
+  el('country').addEventListener('change',()=>{
+    countryManuallyChanged=true;
+    el('ipCountryHint').textContent='已由你手動選擇國家；不會再被 IP 定位結果覆蓋。';
+    onCountryChange();
+  });
   el('unit').addEventListener('change',onUnitChange);
   if(el('district'))el('district').addEventListener('change',showSteps);
   populate('country',options.map(o=>o.country));
   for(const key of spec.filter(k=>k!=='country'))setShown(key,false);
+  applyIPCountry_();
   // 初始只顯示國家；選國家後才出現單位或區域，最後出現回報欄位。
   showSteps();
 }
@@ -324,6 +372,8 @@ async function loadOptions(){
     const r=await fetch(API_URL+'?action=options'),data=await r.json();
     if(!data.ok)throw Error(data.error||'選項載入失敗');
     options=data.options;optionsReady=true;renderType();
+    // Only one lookup per page load; later reports reuse the selected country.
+    detectIPCountryOnce_();
   } catch(e) {
     el('status').className='status error';
     el('status').textContent='無法讀取選項，請檢查 Apps Script 網址及選項設定：'+e.message;
