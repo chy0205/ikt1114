@@ -892,7 +892,7 @@ el('regionalCancelOpen').addEventListener('click',async()=>{
     regionalCancelReport=report;
     el('regionalCancelInfo').textContent='請核對要取消的回報，確認後再填寫原因：';
     const box=el('regionalCancelSummary');box.replaceChildren();
-    const labels=[['回報編號',report.id],['回報類別',TYPE_NAMES[report.type]||report.type],
+    const labels=[['回報編號',report.id],['回報類別',({personal:'個人渡眾',family:'家堂渡眾',public:'公堂渡眾',personalClass:'個人成全進階班',publicClass:'公堂進階班',temple:'成全安堂完成'})[report.type]||report.type],
       ['國家',report.fields.country],['單位',report.fields.unit],
       ['區域',report.fields.district]];
     TYPES[report.type].filter(key=>!['files','country','unit','district'].includes(key))
@@ -992,8 +992,10 @@ function regionalClear_(){
   el('regionalRequestsStatus').textContent='';
   regionalSessionPassword='';
   regionalEditReset_();
+  regionalCancelReset_();
   el('regionalReportId').replaceChildren();
   el('regionalEditOpen').disabled=false;
+  el('regionalCancelOpen').disabled=false;
   el('regionalPassword').value='';
   el('regionalResults').classList.add('hidden');
   el('regionalAreas').replaceChildren();
@@ -1007,6 +1009,7 @@ el('regionalForm').addEventListener('submit',async event=>{
   regionalData=null;
   regionalSessionPassword='';
   regionalEditReset_();
+  regionalCancelReset_();
   el('regionalResults').classList.add('hidden');
   const btn=el('regionalSubmit');btn.disabled=true;btn.textContent='查詢中…';
   try{
@@ -1024,6 +1027,7 @@ el('regionalForm').addEventListener('submit',async event=>{
     regionalSelectPopulate_(data);
     regionalSessionPassword=el('regionalPassword').value.trim();
     el('regionalEditOpen').disabled=false;
+    el('regionalCancelOpen').disabled=false;
     el('regionalPassword').value='';
     el('regionalResults').classList.remove('hidden');
     statusMessage('regionalStatus','查詢成功。共 '+data.regions.length+' 個授權區域、'+data.details.length+' 筆回報明細。');
