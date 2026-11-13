@@ -338,7 +338,8 @@ function showSuccessfulReceipts_(id,password){
   el('copyAccess').textContent='複製本次所有回報編號與查詢密碼';
 }
 form.addEventListener('submit',async e=>{
-  e.preventDefault();const type=el('type').value;if(!TYPES[type]||submitButton.classList.contains('hidden'))return;
+  e.preventDefault();const type=el('type').value;
+  if(submitButton.disabled||!TYPES[type]||submitButton.classList.contains('hidden'))return;
   if(el('eventDate')&&!validateFourDigitDate(el('eventDate'))){
     el('eventDate').reportValidity();
     return;
