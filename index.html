@@ -915,6 +915,7 @@ el('regionalCancelBack').addEventListener('click',()=>{
 });
 el('regionalCancelForm').addEventListener('submit',async event=>{
   event.preventDefault();
+  if(el('regionalCancelSend').disabled)return;
   const report=regionalCancelReport;
   const reason=el('regionalCancelReason').value.trim();
   if(!report||!regionalSessionPassword)return;
@@ -924,8 +925,8 @@ el('regionalCancelForm').addEventListener('submit',async event=>{
   if(reason.length<4||reason.length>500){
     statusMessage('regionalEditStatus','取消原因請填寫4至500字。',true);return;
   }
-  if(!confirm('再次確認：確定要為「'+report.id+'」提出取消申請嗎？\\n\\n'+
-    '原因：'+reason+'\\n\\n這不是立即取消，必須由管理員核准才會生效。'))return;
+  if(!confirm('再次確認：確定要為「'+report.id+'」提出取消申請嗎？\n\n'+
+    '原因：'+reason+'\n\n這不是立即取消，必須由管理員核准才會生效。'))return;
   const button=el('regionalCancelSend');button.disabled=true;
   try{
     const result=await apiPost({action:'regionalChangeRequest',changeType:'cancel',
