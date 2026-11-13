@@ -1326,16 +1326,21 @@ function adminIntegrityCheckPrompt(){
  * 取消已核准不計入；待審核照原始值計入，另標待審核筆數。
  * 不刪除或改寫六類原始回報、照片、索引與修改申請。
  */
+const CLASS_LEVELS=['禮行','義理','仁德'];
 const SETTLEMENT_REGION_HEADERS=['區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
-  '個人成全進階班回報筆數','公堂進階班達標班員人數','成全安堂完成筆數',
-  '有效回報筆數','待審核申請筆數','結算時間'];
-const SETTLEMENT_PERSON_HEADERS=['區域','姓名','個人渡眾','家壇渡眾','個人成全進階班','成全安堂回報'];
-const SETTLEMENT_PUBLIC_HEADERS=['區域','姓名','堂號','公堂渡眾','公堂進階班回報'];
-// 統計時「個人渡眾」取引師、「家壇渡眾」取壇主；「個人成全進階班」
-// 與「成全安堂」均取成全者。班員完全不計分。
-// 公堂分頁按區域+回報人姓名+堂號彙整，避免不同堂號錯誤合併。
+  '個人成全進階班－禮行（筆）','個人成全進階班－義理（筆）','個人成全進階班－仁德（筆）',
+  '公堂進階班－禮行（人）','公堂進階班－義理（人）','公堂進階班－仁德（人）',
+  '成全安堂完成筆數','有效回報筆數','待審核申請筆數','結算時間'];
+const SETTLEMENT_PERSON_HEADERS=['區域','姓名','個人渡眾','家壇渡眾',
+  '個人成全進階班－禮行','個人成全進階班－義理','個人成全進階班－仁德','成全安堂回報'];
+const SETTLEMENT_PUBLIC_HEADERS=['區域','姓名','堂號','公堂渡眾',
+  '公堂進階班－禮行','公堂進階班－義理','公堂進階班－仁德'];
+const SETTLEMENT_HALL_HEADERS=['區域','堂號','公堂渡眾',
+  '公堂進階班－禮行','公堂進階班－義理','公堂進階班－仁德'];
+// 班員不作為個人成績得分者。個人成全進階班按有效回報筆數，
+// 公堂進階班按「堂數達標之班員人數」；兩者單位不同。
 function settlementRows_(){
-  const ss=sheet_(),regions={},people={},publicPeople={},seenIds={},districtOwners={};
+  const ss=sheet_(),regions={},people={},publicPeople={},halls={},seenIds={},districtOwners={};
   const idxSh=ss.getSheetByName('回報索引'),states={};
   if(idxSh&&idxSh.getLastRow()>1){
     idxSh.getRange(2,1,idxSh.getLastRow()-1,6).getValues().forEach(row=>{
@@ -1372,38 +1377,46 @@ function settlementRows_(){
       if(districtOwners[d]&&districtOwners[d]!==areaKey)
         throw new Error('「'+d+'」在不同國別或單位重複，無法安全產生不含國別／單位的結算表；請管理員統一區域名稱');
       districtOwners[d]=areaKey;
-      if(!regions[areaKey])regions[areaKey]=[d,c,u,0,0,0,0,0,0,0,0,stamp];
+      if(!regions[areaKey])regions[areaKey]=[d,0,0,0,0,0,0,0,0,0,0,0,0,stamp];
       const area=regions[areaKey];
-      if(pending[id])area[10]+=pending[id];
+      if(pending[id])area[12]+=pending[id];
       if(states[id]&&states[id].status==='已取消')return;
       // 未有回報索引的歷史資料暫按有效統計，須在正式封存前人工健檢。
       const count=Number(obj.count||0);
       if(spec.fields.includes('count')&&(!Number.isInteger(count)||count<0))
         throw new Error('回報人數不是有效整數，停止結算：'+id);
-      const metric={personal:3,family:4,public:5,personalClass:6,publicClass:7,temple:8}[type];
       const score=['personalClass','temple'].includes(type)?1:count;
-      area[metric]+=score;
-      area[9]+=1;
-      const personalFields={
-        personal:['guide',2],family:['host',3],
-        personalClass:['mentor',4],temple:['mentor',5]
-      };
-      const mapping=personalFields[type];
-      if(mapping){
-        const name=String(obj[mapping[0]]||'').trim();
+      const level=String(obj.classType||'').trim();
+      const levelIndex=CLASS_LEVELS.indexOf(level);
+      if((type==='personalClass'||type==='publicClass')&&levelIndex<0)
+        throw new Error('進階班類別不是禮行、義理或仁德，停止結算：'+id);
+      const regionCol={personal:1,family:2,public:3,temple:10}[type];
+      if(regionCol)area[regionCol]+=score;
+      else if(type==='personalClass')area[4+levelIndex]+=score;
+      else if(type==='publicClass')area[7+levelIndex]+=score;
+      area[11]++;
+      if(['personal','family','personalClass','temple'].includes(type)){
+        const name=String(obj[type==='personal'?'guide':type==='family'?'host':'mentor']||'').trim();
         if(name){
           const key=JSON.stringify([c,u,d,name]);
-          if(!people[key])people[key]=[d,name,0,0,0,0];
-          people[key][mapping[1]]+=score;
+          if(!people[key])people[key]=[d,name,0,0,0,0,0,0];
+          const metric=type==='personal'?2:type==='family'?3:
+            type==='personalClass'?4+levelIndex:7;
+          people[key][metric]+=score;
         }
       }
       if(type==='public'||type==='publicClass'){
         const name=String(obj.reporterName||'').trim();
         const temple=String(obj.temple||'').trim();
-        if(name&&temple){
+        if(!temple)throw new Error('公堂回報缺少堂號，停止結算：'+id);
+        // 堂號總計獨立於回報人，避免不同回報人漏計或重複。
+        const hallKey=JSON.stringify([c,u,d,temple]);
+        if(!halls[hallKey])halls[hallKey]=[d,temple,0,0,0,0];
+        halls[hallKey][type==='public'?2:3+levelIndex]+=score;
+        if(name){
           const key=JSON.stringify([c,u,d,name,temple]);
-          if(!publicPeople[key])publicPeople[key]=[d,name,temple,0,0];
-          publicPeople[key][type==='public'?3:4]+=score;
+          if(!publicPeople[key])publicPeople[key]=[d,name,temple,0,0,0,0];
+          publicPeople[key][type==='public'?3:4+levelIndex]+=score;
         }
       }
     });
@@ -1415,9 +1428,10 @@ function settlementRows_(){
     }
     return 0;
   };
-  return {regional:Object.keys(regions).map(k=>regions[k]).sort(sort).map(row=>[row[0]].concat(row.slice(3))),
+  return {regional:Object.keys(regions).map(k=>regions[k]).sort(sort),
     personal:Object.keys(people).map(k=>people[k]).sort(sort),
     publicPeople:Object.keys(publicPeople).map(k=>publicPeople[k]).sort(sort),
+    halls:Object.keys(halls).map(k=>halls[k]).sort(sort),
     pendingCount:Object.values(pending).reduce((n,v)=>n+v,0),
     missingIndex:Object.keys(seenIds).filter(id=>!states[id]).length,stamp};
 }
@@ -1444,6 +1458,12 @@ const PREVIOUS_V3_PERSON_HEADERS=['區域','姓名','角色',
   '個人渡眾人數','個人成全進階班回報筆數','成全安堂完成筆數',
   '家堂渡眾人數（壇主記錄）','公堂渡眾人數（回報人記錄）',
   '公堂進階班達標人數（回報人記錄）','有效相關回報筆數','結算時間'];
+// 上一版三張結算分頁的精確表頭；升級時只備份衍生表。
+const PREVIOUS_V4_REGION_HEADERS=['區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
+  '個人成全進階班回報筆數','公堂進階班達標班員人數','成全安堂完成筆數',
+  '有效回報筆數','待審核申請筆數','結算時間'];
+const PREVIOUS_V4_PERSON_HEADERS=['區域','姓名','個人渡眾','家壇渡眾','個人成全進階班','成全安堂回報'];
+const PREVIOUS_V4_PUBLIC_HEADERS=['區域','姓名','堂號','公堂渡眾','公堂進階班回報'];
 function settlementSchema_(ss,title,expected){
   const sh=ss.getSheetByName(title);
   if(!sh)return {sheet:null,upgrade:false};
@@ -1453,9 +1473,10 @@ function settlementSchema_(ss,title,expected){
     got.slice(headers.length).every(x=>String(x||'')==='');
   if(matches(expected))return {sheet:sh,upgrade:false};
   const legacy=title==='區域成績結算'?
-    [PREVIOUS_V2_REGION_HEADERS,PREVIOUS_REGION_HEADERS]:
+    [PREVIOUS_V4_REGION_HEADERS,PREVIOUS_V2_REGION_HEADERS,PREVIOUS_REGION_HEADERS]:
     title==='個人成績結算'?
-    [PREVIOUS_V3_PERSON_HEADERS,PREVIOUS_V2_PERSON_HEADERS,PREVIOUS_PERSON_HEADERS]:[];
+    [PREVIOUS_V4_PERSON_HEADERS,PREVIOUS_V3_PERSON_HEADERS,PREVIOUS_V2_PERSON_HEADERS,PREVIOUS_PERSON_HEADERS]:
+    title==='公堂成績結算'?[PREVIOUS_V4_PUBLIC_HEADERS]:[];
   if(legacy.some(headers=>matches(headers)))return {sheet:sh,upgrade:true};
   throw new Error('「'+title+'」表頭不符合目前或前一版結算格式，為保護資料停止更新');
 }
@@ -1489,21 +1510,23 @@ function recalculateScores(options){
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   try{
     const ss=sheet_(),data=settlementRows_();
-    // 預先驗證三個目標表，避免錯誤覆蓋使用者自建的其他分頁。
-    const personalSchema=settlementSchema_(ss,'個人成績結算',SETTLEMENT_PERSON_HEADERS);
-    const publicSchema=settlementSchema_(ss,'公堂成績結算',SETTLEMENT_PUBLIC_HEADERS);
-    const regionSchema=settlementSchema_(ss,'區域成績結算',SETTLEMENT_REGION_HEADERS);
-    if(personalSchema.upgrade)backupSettlementBeforeUpgrade_(personalSchema.sheet);
-    if(regionSchema.upgrade)backupSettlementBeforeUpgrade_(regionSchema.sheet);
-    settlementSheet_(ss,'個人成績結算',SETTLEMENT_PERSON_HEADERS,data.personal,personalSchema);
-    settlementSheet_(ss,'公堂成績結算',SETTLEMENT_PUBLIC_HEADERS,data.publicPeople,publicSchema);
-    settlementSheet_(ss,'區域成績結算',SETTLEMENT_REGION_HEADERS,data.regional,regionSchema);
+    // 四個目標都先檢查表頭，再修改任何結算資料。
+    const specs=[
+      ['個人成績結算',SETTLEMENT_PERSON_HEADERS,data.personal],
+      ['公堂成績結算',SETTLEMENT_PUBLIC_HEADERS,data.publicPeople],
+      ['公堂總成績結算',SETTLEMENT_HALL_HEADERS,data.halls],
+      ['區域成績結算',SETTLEMENT_REGION_HEADERS,data.regional]
+    ].map(entry=>({name:entry[0],headers:entry[1],rows:entry[2],
+      schema:settlementSchema_(ss,entry[0],entry[1])}));
+    // 先備份所有需要升級的舊結算表，保留上一版的結果。
+    specs.filter(x=>x.schema.upgrade).forEach(x=>backupSettlementBeforeUpgrade_(x.schema.sheet));
+    specs.forEach(x=>settlementSheet_(ss,x.name,x.headers,x.rows,x.schema));
     if(!options||!options.silent)
       auditSheet_().appendRow([new Date(),'settlement_refresh','','',admin,'',JSON.stringify({
-        people:data.personal.length,publicPeople:data.publicPeople.length,regions:data.regional.length,pending:data.pendingCount,
+        people:data.personal.length,publicPeople:data.publicPeople.length,halls:data.halls.length,regions:data.regional.length,pending:data.pendingCount,
         legacyWithoutIndex:data.missingIndex
       }),'重新結算個人與區域成績；原始紀錄未更動']);
-    return {ok:true,personalRows:data.personal.length,publicRows:data.publicPeople.length,regionalRows:data.regional.length,
+    return {ok:true,personalRows:data.personal.length,publicRows:data.publicPeople.length,hallRows:data.halls.length,regionalRows:data.regional.length,
       pendingCount:data.pendingCount,missingIndex:data.missingIndex,updatedAt:data.stamp};
   }finally{lock.releaseLock();}
 }
@@ -1511,13 +1534,13 @@ function adminRecalculateScoresPrompt(){
   requireAdmin_();
   const ui=SpreadsheetApp.getUi();
   const yes=ui.alert('重新結算成績',
-    '將建立／更新「個人成績結算」、「公堂成績結算」及「區域成績結算」三個衍生分頁。已核准取消的回報不計入；未完成審核的申請仍以目前原始成績統計。原始成績、照片、索引不會刪除。確定嗎？',
+    '將建立／更新「個人成績結算」、「公堂成績結算」、「公堂總成績結算」及「區域成績結算」四個衍生分頁。已核准取消的回報不計入；未完成審核的申請仍以目前原始成績統計。原始成績、照片、索引不會刪除。確定嗎？',
     ui.ButtonSet.YES_NO);
   if(yes!==ui.Button.YES)return {ok:false,cancelled:true};
   try{
     const result=recalculateScores();
     ui.alert('結算完成',
-      '個人成績：'+result.personalRows+' 列\n公堂成績：'+result.publicRows+' 列\n區域：'+result.regionalRows+
+      '個人成績：'+result.personalRows+' 列\n公堂成績：'+result.publicRows+' 列\n公堂總成績：'+result.hallRows+' 列\n區域：'+result.regionalRows+
       ' 區\n待審核申請：'+result.pendingCount+
       ' 筆\n無索引舊回報：'+result.missingIndex+
       ' 筆\n更新：'+result.updatedAt+
@@ -1559,7 +1582,7 @@ function adminInstallAutoSettlementPrompt(){
   requireAdmin_();
   const ui=SpreadsheetApp.getUi();
   const choice=ui.alert('啟用自動成績結算',
-    '將授權 Apps Script 每5分鐘重新計算「個人成績結算」、「公堂成績結算」和「區域成績結算」，無須手動按重新結算。首次啟用會先執行結算。\n不會更動原始成績或照片。\n確定啟用嗎？',
+    '將授權 Apps Script 每5分鐘重新計算「個人成績結算」、「公堂成績結算」、「公堂總成績結算」和「區域成績結算」，無須手動按重新結算。首次啟用會先執行結算。\n不會更動原始成績或照片。\n確定啟用嗎？',
     ui.ButtonSet.YES_NO);
   if(choice!==ui.Button.YES)return {ok:false,cancelled:true};
   try{
