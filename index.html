@@ -30,6 +30,9 @@ button:hover:not(:disabled){background:var(--green-dark)}button:disabled{opacity
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style><style>
 .tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:20px}.tab-button{background:#eef5ef;color:#26543b;border:1px solid #ccdfd1;min-height:47px;padding:10px;font-size:15px}.tab-button[aria-selected="true"]{background:#225640;color:white;border-color:#225640}.lookup-card{border:1px solid #d6e4da;border-radius:13px;padding:16px;margin:15px 0;background:#f9fcf9}.lookup-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.lookup-grid .field{margin:0}.mini-button{min-height:42px;padding:8px 12px;font-size:14px}.button-outline{background:white;color:#25533c;border:1px solid #97b5a2}.button-outline:hover:not(:disabled){background:#ecf3ee}.danger-button{background:#a52d39}.danger-button:hover:not(:disabled){background:#8e242e}.button-row{display:flex;gap:10px;flex-wrap:wrap}.button-row button{flex:1}.query-value{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font-size:13px}.readonly-tag{display:inline-block;border-radius:20px;background:#e6f2e9;color:#21573a;padding:3px 10px;font-size:12px;margin:4px 0}.password-output{overflow-wrap:anywhere;font-family:ui-monospace,monospace;line-height:1.8;padding:12px;background:#eef5ef;border:1px dashed #8bb59a;border-radius:10px}.compact-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.compact-fields .field{margin:0}.muted-note{color:#66776b;font-size:13px}.summary-list{display:grid;gap:7px}.summary-item{padding:9px 0;border-bottom:1px solid #eef1ee}.summary-item small{display:block;color:#6b796e}.summary-item strong{font-size:14px;overflow-wrap:anywhere}@media(max-width:560px){.tabs{grid-template-columns:1fr}.lookup-grid,.compact-fields{grid-template-columns:1fr}.button-row{flex-direction:column}}
+.review-confirm{display:flex;align-items:flex-start;gap:11px;padding:12px 0;cursor:pointer;font-size:14px}
+.review-confirm input{width:20px;height:20px;min-height:20px;flex:none;margin:3px 0 0;accent-color:var(--green)}
+#reviewSummary .summary-item strong{white-space:pre-wrap;overflow-wrap:anywhere}
 .regional-table{width:100%;border-collapse:collapse;min-width:650px;font-size:13px}.regional-table th,.regional-table td{padding:9px 11px;border-bottom:1px solid #dce6df;text-align:left;white-space:nowrap}.regional-table th{background:#e8f2ea;color:#20543b;position:sticky;top:0}.regional-table tr:nth-child(even){background:#f7faf7}
 .regional-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:12px 0}
 .regional-stat{padding:12px;background:#edf5ef;border-radius:10px;border:1px solid #d8e8dc}
@@ -43,7 +46,17 @@ textarea{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px sol
 <button type="button" class="tab-button" id="tabReport" role="tab" aria-selected="true" aria-controls="reportPanel">新增成績回報</button>
 <button type="button" class="tab-button" id="tabLookup" role="tab" aria-selected="false" aria-controls="lookupPanel">查詢／申請修改</button>
 <button type="button" class="tab-button" id="tabRegional" role="tab" aria-selected="false" aria-controls="regionalPanel">區域負責人查詢</button>
-</div><div id="reportPanel" role="tabpanel"><div class="notice"><strong>連續回報同一區域</strong>只要選好一次回報類別、國家、單位及區域；每筆成功送出後，保留這些選擇，只清空該筆明細與照片，直接填下一筆。每筆均獨立回報，請保存每筆憑證。</div><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option></select></div><div id="dynamic"></div><button id="submit" type="submit">檢查資料並送出</button><div id="status" class="status" role="status" aria-live="polite"></div>
+</div><div id="reportPanel" role="tabpanel"><div class="notice"><strong>連續回報同一區域</strong>只要選好一次回報類別、國家、單位及區域；每筆成功送出後，保留這些選擇，只清空該筆明細與照片，直接填下一筆。每筆均獨立回報，請保存每筆憑證。</div><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option></select></div><div id="dynamic"></div><button id="submit" type="submit">填寫完成，檢查回報資料</button>
+<div id="reportReview" class="lookup-card hidden" aria-live="polite">
+  <h3 style="margin:0 0 8px">第二次確認：請逐項檢查</h3>
+  <p class="muted-note">下方內容尚未送出。請確認姓名、區域、班別、人數、日期及照片都正確；有錯誤請按「返回修改」。</p>
+  <div id="reviewSummary" class="summary-list"></div>
+  <label class="review-confirm"><input type="checkbox" id="reviewChecked">我已再次確認，以上資料及照片均正確</label>
+  <div class="button-row">
+    <button type="button" class="button-outline" id="reviewBack">返回修改</button>
+    <button type="button" id="reviewSend" disabled>確認無誤，正式送出</button>
+  </div>
+</div><div id="status" class="status" role="status" aria-live="polite"></div>
 <div id="accessReceipt" class="lookup-card hidden">
 <strong>本次頁面已成功回報 <span id="successCount">0</span> 筆：請立即保存每筆查詢憑證</strong>
 <p class="muted-note">憑證僅暫存於本頁，重新整理或關閉後就會消失；請先複製並妥善保存，不要傳給他人。</p>
@@ -164,6 +177,8 @@ const submitButton = el('submit');
 const typeField=el('type');
 const successfulReceipts=[];
 let successfulCount=0;
+let reviewSnapshot=null;
+let reportingInFlight=false;
 function displayLabel(key){return (TYPE_LABELS[typeField.value]||{})[key]||LABEL[key];}
 function updateProgress(){
   const type=typeField.value,country=el('country')?.value,unit=el('unit')?.value,district=el('district')?.value;
@@ -287,6 +302,7 @@ function onUnitChange(){
   showSteps();
 }
 function renderType(){
+  closeReportReview_();
   const target=el('dynamic');target.replaceChildren();el('status').textContent='';
   el('typeHelp').textContent=TYPE_HELP[typeField.value]||'選擇回報類別後，會依序顯示需要填寫的資料。';
   const spec=TYPES[el('type').value];
@@ -337,48 +353,114 @@ function showSuccessfulReceipts_(id,password){
   el('accessText').textContent=successfulReceipts.join('\n\n');
   el('copyAccess').textContent='複製本次所有回報編號與查詢密碼';
 }
-form.addEventListener('submit',async e=>{
-  e.preventDefault();const type=el('type').value;
-  if(submitButton.disabled||!TYPES[type]||submitButton.classList.contains('hidden'))return;
+function closeReportReview_(){
+  reviewSnapshot=null;
+  el('reportReview').classList.add('hidden');
+  el('reviewChecked').checked=false;
+  el('reviewSend').disabled=true;
+  typeField.disabled=false;
+  for(const key of TYPES[typeField.value]||[]){
+    const node=el(key);
+    if(node)node.disabled=false;
+  }
+  // Reapply cascading visibility requirements (including sole-unit hiding).
+  showSteps();
+}
+function reportSummary_(type,values,files){
+  const lines=[['回報類別',typeField.selectedOptions[0]?.textContent||type],
+    ['國家',values.country],['單位',values.unit],['區域',values.district]];
+  for(const key of TYPES[type].filter(k=>!['country','unit','district','files'].includes(k))){
+    const node=el(key);
+    lines.push([displayLabel(key),node?.tagName==='SELECT'?node.selectedOptions[0]?.textContent:values[key]]);
+  }
+  lines.push(['照片',files.length+' 張'+(files.length?'：\\n'+files.map(f=>f.name).join('\\n'):'')]);
+  return lines;
+}
+function openReportReview_(){
+  const type=typeField.value;
+  if(!TYPES[type]||reportingInFlight||!el('reportReview').classList.contains('hidden'))return;
   if(el('eventDate')&&!validateFourDigitDate(el('eventDate'))){
-    el('eventDate').reportValidity();
-    return;
+    el('eventDate').reportValidity();return;
   }
-  const btn=submitButton,status=el('status');
-  const spec=TYPES[type],lines=[typeField.selectedOptions[0]?.textContent, '國家：'+el('country').value,'單位：'+el('unit').value,'區域：'+el('district').value];
-  for(const key of spec.filter(k=>!['country','unit','district','files'].includes(k))){
-    const node=el(key);lines.push(displayLabel(key)+'：'+(node.tagName==='SELECT'?node.selectedOptions[0]?.textContent:node.value));
+  if(!form.reportValidity())return;
+  const values={};
+  TYPES[type].filter(k=>k!=='files').forEach(k=>values[k]=el(k).value.trim());
+  const files=el('files')?[...el('files').files]:[];
+  if(files.length>5||files.some(f=>f.size>5*1024*1024)||
+    files.some(f=>!['image/jpeg','image/png','image/webp','image/heic','image/heif'].includes(f.type))){
+    el('files').setCustomValidity('照片最多5張、每張5MB，且須使用支援格式');
+    el('files').reportValidity();return;
   }
-  if(el('files'))lines.push('照片：'+el('files').files.length+' 張');
-  if(!confirm('請再確認回報內容：\n\n'+lines.join('\n')+'\n\n確定送出嗎？'))return;
-  btn.disabled=true;btn.textContent='正在送出，請勿重複點擊…';status.className='status';
-  status.textContent='正在上傳，請勿關閉頁面…';
+  const rows=reportSummary_(type,values,files);
+  const summary=el('reviewSummary');summary.replaceChildren();
+  for(const [label,value] of rows){
+    const item=document.createElement('div');item.className='summary-item';
+    const small=document.createElement('small');small.textContent=label;
+    const strong=document.createElement('strong');strong.textContent=value||'（未填）';
+    item.append(small,strong);summary.append(item);
+  }
+  reviewSnapshot={type,values,files};
+  el('reviewChecked').checked=false;
+  el('reviewSend').disabled=true;
+  el('reportReview').classList.remove('hidden');
+  typeField.disabled=true;
+  for(const key of TYPES[type]){
+    const node=el(key);
+    if(node)node.disabled=true;
+  }
+  submitButton.classList.add('hidden');
+  el('status').textContent='尚未送出；請檢查內容並按「確認無誤，正式送出」。';
+  el('status').className='status';
+  el('reportReview').scrollIntoView({behavior:'smooth',block:'start'});
+}
+form.addEventListener('submit',e=>{
+  e.preventDefault();
+  if(reportingInFlight||submitButton.disabled||submitButton.classList.contains('hidden'))return;
+  openReportReview_();
+});
+el('reviewBack').addEventListener('click',()=>{
+  if(reportingInFlight)return;
+  closeReportReview_();
+  el('status').textContent='已返回修改，修改完成後請再次檢查。';
+  submitButton.focus();
+});
+el('reviewChecked').addEventListener('change',()=>{
+  el('reviewSend').disabled=!el('reviewChecked').checked||reportingInFlight;
+});
+el('reviewSend').addEventListener('click',async()=>{
+  if(reportingInFlight||!reviewSnapshot||!el('reviewChecked').checked)return;
+  const snapshot=reviewSnapshot;
+  reportingInFlight=true;
+  const btn=el('reviewSend'),status=el('status');
+  btn.disabled=true;el('reviewBack').disabled=true;
+  btn.textContent='正式送出中，請勿重複點擊…';
+  status.className='status';status.textContent='正在上傳，請勿關閉頁面…';
   try{
-    const payload={type};
-    for(const key of TYPES[type])if(key!=='files')payload[key]=el(key).value.trim();
-    payload.files=[];
-    if(el('files')){
-      const files=[...el('files').files];
-      if(files.length>5)throw Error('最多上傳5張照片');
-      for(const file of files){
-        if(file.size>5*1024*1024)throw Error('單張照片不可超過5MB');
-        if(!['image/jpeg','image/png','image/webp','image/heic','image/heif'].includes(file.type))
-          throw Error('不支援的照片格式');
-        payload.files.push({mimeType:file.type,data:await base64(file)});
-      }
+    const payload={type:snapshot.type,...snapshot.values,files:[]};
+    for(const file of snapshot.files){
+      payload.files.push({mimeType:file.type,data:await base64(file)});
     }
-    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+    const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(payload)});
     const data=await response.json();if(!data.ok)throw Error(data.error||'送出失敗');
     status.className='status success';
     status.textContent='第 '+(successfulCount+1)+' 筆回報成功！回報編號：'+data.id+
-      '\n已保留回報類別與區域，清空本筆明細和照片，可以直接填下一筆。';
+      '\\n已保留回報類別與區域，清空本筆明細和照片，可以直接填下一筆。';
     showSuccessfulReceipts_(data.id,data.lookupPassword);
     if(!data.lookupPassword)
-      status.textContent+='\n後端未回傳查詢密碼，請聯絡管理員，且不要重複送出此筆成績。';
+      status.textContent+='\\n後端未回傳查詢密碼，請聯絡管理員，且不要重複送出此筆成績。';
+    closeReportReview_();
     clearNextReportDetails_();
   }catch(err){
-    status.className='status error';status.textContent='回報未確認成功：'+err.message+'。請先向管理員確認是否已收到，避免重複回報。';
-  }finally{btn.disabled=false;btn.textContent='檢查資料並送出';}
+    status.className='status error';
+    status.textContent='回報未確認成功：'+err.message+'。請先向管理員確認是否已收到，避免重複回報。資料仍保留供核對。';
+    // On ambiguous network failures, prevent another POST without a fresh review.
+    closeReportReview_();
+  }finally{
+    reportingInFlight=false;
+    btn.disabled=true;el('reviewBack').disabled=false;
+    btn.textContent='確認無誤，正式送出';
+  }
 });
 if(!API_URL.startsWith('https://')){el('status').className='status error';el('status').textContent='尚未設定 Apps Script 網址。';}
 else loadOptions();
