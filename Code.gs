@@ -800,7 +800,10 @@ function resetLookupPasswordSelected(){
  * 原始回報、照片網址、密碼雜湊、管理員操作紀錄絕不複製到檢視檔。
  */
 const REGIONAL_VIEW_MARKER='BY2027_SINGLE_DISTRICT_V1';
-const REGIONAL_SUMMARY_HEADERS=['國別','單位','區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數','個人成全進階班回報筆數','公堂進階班達標人數','成全安堂完成筆數','有效回報總筆數'];
+const REGIONAL_SUMMARY_HEADERS=['國別','單位','區域','個人渡眾人數','家堂渡眾人數','公堂渡眾人數',
+  '個人成全進階班－禮行（筆）','個人成全進階班－義理（筆）','個人成全進階班－仁德（筆）',
+  '公堂進階班－禮行（人）','公堂進階班－義理（人）','公堂進階班－仁德（人）',
+  '成全安堂完成筆數','有效回報總筆數'];
 const REGIONAL_DETAIL_HEADERS=['回報編號','送出時間','回報類別','國別','單位','區域','目前狀態','人數／達標數','進階班類別','上課次數','日期','引師姓名','回報人姓名','佛堂／公堂堂號','壇主姓名','成全者姓名','班員姓名','照片張數'];
 function safeRegionCell_(x){
   const v=x instanceof Date?Utilities.formatDate(x,'Asia/Taipei','yyyy/MM/dd HH:mm:ss'):
@@ -822,7 +825,7 @@ function regionViewRows_(country,unit,district){
     index.getRange(2,1,index.getLastRow()-1,5).getValues().forEach(row=>{
       if(row[0])statusById[String(row[0])]=String(row[4]||'已回報');
     });
-  const total=[target.country,target.unit,target.district,0,0,0,0,0,0,0],details=[];
+  const total=[target.country,target.unit,target.district,0,0,0,0,0,0,0,0,0,0,0],details=[];
   Object.keys(TYPES).forEach(type=>{
     const spec=TYPES[type],sh=ss.getSheetByName(spec.sheet);
     if(!sh||sh.getLastRow()<2)return;
@@ -844,9 +847,15 @@ function regionViewRows_(country,unit,district){
         p.reporterName||'',p.temple||'',p.host||'',p.mentor||'',p.student||'',photoCount
       ].map(safeRegionCell_));
       if(state==='已取消')return;
-      const index={personal:3,family:4,public:5,personalClass:6,publicClass:7,temple:8}[type];
-      total[index]+=['personalClass','temple'].includes(type)?1:count;
-      total[9]++;
+      const metric={personal:3,family:4,public:5,temple:12}[type];
+      if(metric)total[metric]+=type==='temple'?1:count;
+      else{
+        const classIndex=CLASS_LEVELS.indexOf(String(p.classType||'').trim());
+        if(classIndex<0)throw new Error('進階班類別不是禮行、義理或仁德，停止統計：'+id);
+        total[(type==='personalClass'?6:9)+classIndex]+=
+          type==='personalClass'?1:count;
+      }
+      total[13]++;
     });
   });
   details.sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
