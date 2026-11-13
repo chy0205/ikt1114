@@ -1342,7 +1342,7 @@ const SETTLEMENT_REGION_HEADERS=['區域','個人渡眾人數','家堂渡眾人�
   '成全安堂完成筆數','有效回報筆數','待審核申請筆數','結算時間'];
 const SETTLEMENT_PERSON_HEADERS=['區域','姓名','個人渡眾','家壇渡眾',
   '個人成全進階班－禮行','個人成全進階班－義理','個人成全進階班－仁德','成全安堂回報'];
-const SETTLEMENT_PUBLIC_HEADERS=['區域','姓名','堂號','公堂渡眾',
+const SETTLEMENT_PUBLIC_HEADERS=['堂號','區域','姓名','公堂渡眾',
   '公堂進階班－禮行','公堂進階班－義理','公堂進階班－仁德'];
 const SETTLEMENT_HALL_HEADERS=['堂號','公堂渡眾',
   '公堂進階班－禮行','公堂進階班－義理','公堂進階班－仁德'];
@@ -1425,7 +1425,7 @@ function settlementRows_(){
         halls[hallKey][type==='public'?1:2+levelIndex]+=score;
         if(name){
           const key=JSON.stringify([c,u,d,name,temple]);
-          if(!publicPeople[key])publicPeople[key]=[d,name,temple,0,0,0,0];
+          if(!publicPeople[key])publicPeople[key]=[temple,d,name,0,0,0,0];
           publicPeople[key][type==='public'?3:4+levelIndex]+=score;
         }
       }
@@ -1474,6 +1474,8 @@ const PREVIOUS_V4_REGION_HEADERS=['區域','個人渡眾人數','家堂渡眾人
   '有效回報筆數','待審核申請筆數','結算時間'];
 const PREVIOUS_V4_PERSON_HEADERS=['區域','姓名','個人渡眾','家壇渡眾','個人成全進階班','成全安堂回報'];
 const PREVIOUS_V4_PUBLIC_HEADERS=['區域','姓名','堂號','公堂渡眾','公堂進階班回報'];
+const PREVIOUS_V5_PUBLIC_HEADERS=['區域','姓名','堂號','公堂渡眾',
+  '公堂進階班－禮行','公堂進階班－義理','公堂進階班－仁德'];
 // 上一版公堂總成績依區域及堂號呈現六欄，新版只有堂號及五欄。
 const PREVIOUS_V5_HALL_HEADERS=['區域','堂號','公堂渡眾',
   '公堂進階班－禮行','公堂進階班－義理','公堂進階班－仁德'];
@@ -1489,7 +1491,7 @@ function settlementSchema_(ss,title,expected){
     [PREVIOUS_V4_REGION_HEADERS,PREVIOUS_V2_REGION_HEADERS,PREVIOUS_REGION_HEADERS]:
     title==='個人成績結算'?
     [PREVIOUS_V4_PERSON_HEADERS,PREVIOUS_V3_PERSON_HEADERS,PREVIOUS_V2_PERSON_HEADERS,PREVIOUS_PERSON_HEADERS]:
-    title==='公堂成績結算'?[PREVIOUS_V4_PUBLIC_HEADERS]:
+    title==='公堂成績結算'?[PREVIOUS_V5_PUBLIC_HEADERS,PREVIOUS_V4_PUBLIC_HEADERS]:
     title==='公堂總成績結算'?[PREVIOUS_V5_HALL_HEADERS]:[];
   if(legacy.some(headers=>matches(headers)))return {sheet:sh,upgrade:true};
   throw new Error('「'+title+'」表頭不符合目前或前一版結算格式，為保護資料停止更新');
