@@ -138,15 +138,28 @@ textarea{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px sol
       <div style="overflow-x:auto" id="regionalRequestsList"></div>
     </div>
     <div class="lookup-card">
-      <h3 style="margin:0 0 8px">申請修改區域回報</h3>
-      <p class="muted-note">先選擇本次查詢中的回報，修改欄位並填寫原因。送出後交由管理員審核，不會立即更動成績。國別、單位、區域及照片不能從此入口修改。</p>
-      <div class="field"><label for="regionalReportId">選擇回報紀錄</label><select id="regionalReportId"><option value="">請選擇要申請修改的回報</option></select></div>
-      <button type="button" id="regionalEditOpen" class="button-outline">載入回報資料並申請修改</button>
+      <h3 style="margin:0 0 8px">申請修改／取消區域回報</h3>
+      <p class="muted-note">選擇授權區域內的一筆回報，可以申請修改或取消。兩種申請都必須由管理員審核，核准取消後才會從成績結算排除；原始回報及照片不會刪除。</p>
+      <div class="field"><label for="regionalReportId">選擇回報紀錄</label><select id="regionalReportId"><option value="">請選擇要申請修改或取消的回報</option></select></div>
+      <div class="button-row">
+        <button type="button" id="regionalEditOpen" class="button-outline">載入資料，申請修改</button>
+        <button type="button" id="regionalCancelOpen" class="danger-button">載入資料，申請取消</button>
+      </div>
       <form id="regionalEditForm" class="hidden" style="margin-top:18px">
         <div id="regionalEditInfo" class="muted-note"></div>
         <div id="regionalEditFields" class="compact-fields"></div>
         <div class="field" style="margin-top:16px"><label for="regionalEditReason">修改原因 *</label><input id="regionalEditReason" required minlength="4" maxlength="500" placeholder="請說明原始資料哪裡填錯"></div>
         <div class="button-row"><button type="submit" id="regionalEditSend">送出修改申請</button><button type="button" class="button-outline" id="regionalEditCancel">取消編輯</button></div>
+      </form>
+      <form id="regionalCancelForm" class="hidden" style="margin-top:18px">
+        <div id="regionalCancelInfo" class="muted-note"></div>
+        <div id="regionalCancelSummary" class="summary-list"></div>
+        <div class="field" style="margin-top:16px"><label for="regionalCancelReason">取消原因 *</label><textarea id="regionalCancelReason" required minlength="4" maxlength="500" placeholder="請說明取消原因（至少4字），例如回報資料重複或回報錯誤"></textarea></div>
+        <p class="muted-note">申請取消後，需等管理員核准才會排除成績；在審核完成前仍暫時計入。此操作不會立即刪除原始紀錄或照片。</p>
+        <div class="button-row">
+          <button type="submit" id="regionalCancelSend" class="danger-button">確認資料，送出取消申請</button>
+          <button type="button" id="regionalCancelBack" class="button-outline">返回，不申請取消</button>
+        </div>
       </form>
       <div id="regionalEditStatus" role="status" aria-live="polite" class="status"></div>
     </div>
@@ -790,6 +803,15 @@ el('regionalRequestsRefresh').addEventListener('click',regionalRefreshRequests_)
 el('regionalDetailKeyword').addEventListener('input',renderRegionalDetails_);
 let regionalSessionPassword='';
 let regionalEditingReport=null;
+let regionalCancelReport=null;
+function regionalCancelReset_(){
+  regionalCancelReport=null;
+  el('regionalCancelForm').classList.add('hidden');
+  el('regionalCancelSummary').replaceChildren();
+  el('regionalCancelInfo').textContent='';
+  el('regionalCancelReason').value='';
+  el('regionalCancelSend').disabled=false;
+}
 function regionalEditReset_(){
   regionalEditingReport=null;
   el('regionalEditForm').classList.add('hidden');
@@ -799,7 +821,7 @@ function regionalEditReset_(){
 }
 function regionalSelectPopulate_(data){
   const select=el('regionalReportId');select.replaceChildren();
-  select.add(new Option('請選擇要申請修改的回報',''));
+  select.add(new Option('請選擇要申請修改或取消的回報',''));
   data.details.forEach(row=>{
     if(row[6]==='已取消')return;
     const id=String(row[0]);
@@ -807,6 +829,7 @@ function regionalSelectPopulate_(data){
     select.add(new Option(label,id));
   });
   regionalEditReset_();
+  regionalCancelReset_();
 }
 function regionalEditField_(key,value){
   const outer=document.createElement('div');outer.className='field';
@@ -827,6 +850,7 @@ function regionalEditField_(key,value){
 }
 el('regionalEditOpen').addEventListener('click',async()=>{
   regionalEditReset_();
+  regionalCancelReset_();
   const id=el('regionalReportId').value;
   if(!id||!regionalSessionPassword){statusMessage('regionalEditStatus','請先查詢區域並選擇一筆回報。',true);return;}
   const button=el('regionalEditOpen');button.disabled=true;
@@ -843,8 +867,82 @@ el('regionalEditOpen').addEventListener('click',async()=>{
   }catch(err){statusMessage('regionalEditStatus',err.message,true);}
   finally{button.disabled=false;}
 });
-el('regionalReportId').addEventListener('change',()=>{regionalEditReset_();el('regionalEditOpen').disabled=false;});
+el('regionalReportId').addEventListener('change',()=>{
+  regionalEditReset_();
+  regionalCancelReset_();
+  el('regionalEditOpen').disabled=false;
+  el('regionalCancelOpen').disabled=false;
+});
 el('regionalEditCancel').addEventListener('click',regionalEditReset_);
+// 與區域修改共用同一受密碼授權的後端；取消申請不直接改原始成績。
+el('regionalCancelOpen').addEventListener('click',async()=>{
+  regionalCancelReset_();
+  regionalEditReset_();
+  const id=el('regionalReportId').value;
+  if(!id||!regionalSessionPassword){
+    statusMessage('regionalEditStatus','請先查詢授權區域並選擇要取消的回報。',true);return;
+  }
+  const btn=el('regionalCancelOpen');btn.disabled=true;
+  try{
+    const report=await apiPost({action:'regionalReport',
+      regionalPassword:regionalSessionPassword,id});
+    if(report.status==='已取消')throw Error('此筆回報已經取消，不能重複申請。');
+    if(report.hasPendingRequest)throw Error('此筆回報已有待審核申請，請先等管理員處理。');
+    if(el('regionalReportId').value!==id) return; // selection changed during loading
+    regionalCancelReport=report;
+    el('regionalCancelInfo').textContent='請核對要取消的回報，確認後再填寫原因：';
+    const box=el('regionalCancelSummary');box.replaceChildren();
+    const labels=[['回報編號',report.id],['回報類別',TYPE_NAMES[report.type]||report.type],
+      ['國家',report.fields.country],['單位',report.fields.unit],
+      ['區域',report.fields.district]];
+    TYPES[report.type].filter(key=>!['files','country','unit','district'].includes(key))
+      .forEach(key=>labels.push([LOOKUP_KEYS[key]||LABEL[key]||key,report.fields[key]]));
+    labels.push(['照片',String(report.photoCount||0)+' 張']);
+    for(const [label,value] of labels){
+      const item=document.createElement('div');item.className='summary-item';
+      const small=document.createElement('small');small.textContent=label;
+      const strong=document.createElement('strong');strong.textContent=String(value??'');
+      item.append(small,strong);box.append(item);
+    }
+    el('regionalCancelForm').classList.remove('hidden');
+    el('regionalCancelReason').focus();
+  }catch(err){statusMessage('regionalEditStatus',err.message,true);}
+  finally{btn.disabled=false;}
+});
+el('regionalCancelBack').addEventListener('click',()=>{
+  regionalCancelReset_();
+  statusMessage('regionalEditStatus','已返回，未送出取消申請。');
+});
+el('regionalCancelForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const report=regionalCancelReport;
+  const reason=el('regionalCancelReason').value.trim();
+  if(!report||!regionalSessionPassword)return;
+  if(report.id!==el('regionalReportId').value){
+    statusMessage('regionalEditStatus','選取的回報已改變，請重新載入。',true);return;
+  }
+  if(reason.length<4||reason.length>500){
+    statusMessage('regionalEditStatus','取消原因請填寫4至500字。',true);return;
+  }
+  if(!confirm('再次確認：確定要為「'+report.id+'」提出取消申請嗎？\\n\\n'+
+    '原因：'+reason+'\\n\\n這不是立即取消，必須由管理員核准才會生效。'))return;
+  const button=el('regionalCancelSend');button.disabled=true;
+  try{
+    const result=await apiPost({action:'regionalChangeRequest',changeType:'cancel',
+      regionalPassword:regionalSessionPassword,id:report.id,version:report.version,reason});
+    regionalCancelReset_();
+    statusMessage('regionalEditStatus','取消申請已送出，等待管理員審核。申請編號：'+result.requestId);
+    const option=[...el('regionalReportId').options].find(opt=>opt.value===report.id);
+    if(option)option.disabled=true;
+    el('regionalReportId').value='';
+    el('regionalEditOpen').disabled=true;
+    el('regionalCancelOpen').disabled=true;
+    await regionalRefreshRequests_();
+  }catch(err){
+    statusMessage('regionalEditStatus',err.message,true);
+  }finally{button.disabled=false;}
+});
+
 el('regionalEditForm').addEventListener('submit',async event=>{
   event.preventDefault();
   const r=regionalEditingReport;
