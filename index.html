@@ -373,7 +373,7 @@ function reportSummary_(type,values,files){
     const node=el(key);
     lines.push([displayLabel(key),node?.tagName==='SELECT'?node.selectedOptions[0]?.textContent:values[key]]);
   }
-  lines.push(['照片',files.length+' 張'+(files.length?'：\\n'+files.map(f=>f.name).join('\\n'):'')]);
+  lines.push(['照片',files.length+' 張'+(files.length?'：\n'+files.map(f=>f.name).join('\n'):'')]);
   return lines;
 }
 function openReportReview_(){
@@ -445,10 +445,10 @@ el('reviewSend').addEventListener('click',async()=>{
     const data=await response.json();if(!data.ok)throw Error(data.error||'送出失敗');
     status.className='status success';
     status.textContent='第 '+(successfulCount+1)+' 筆回報成功！回報編號：'+data.id+
-      '\\n已保留回報類別與區域，清空本筆明細和照片，可以直接填下一筆。';
+      '\n已保留回報類別與區域，清空本筆明細和照片，可以直接填下一筆。';
     showSuccessfulReceipts_(data.id,data.lookupPassword);
     if(!data.lookupPassword)
-      status.textContent+='\\n後端未回傳查詢密碼，請聯絡管理員，且不要重複送出此筆成績。';
+      status.textContent+='\n後端未回傳查詢密碼，請聯絡管理員，且不要重複送出此筆成績。';
     closeReportReview_();
     clearNextReportDetails_();
   }catch(err){
