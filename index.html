@@ -377,11 +377,15 @@ async function loadOptions(){
   try {
     const r=await fetch(API_URL+'?action=options'),data=await r.json();
     if(!data.ok)throw Error(data.error||'選項載入失敗');
-    options=data.options;optionsReady=true;renderType();
+    options=Array.isArray(data.options)?data.options:[];
+    optionsReady=options.some(o=>o.unit&&o.district);
+    renderType();
+    if(!optionsReady){el('status').className='status error';el('status').textContent='目前沒有可用的單位／區域選項，請管理員確認「選項設定」B、C 欄及 Apps Script API 部署。';}
     // Available country names are suggestions only; no third-party IP lookup.
   } catch(e) {
+    optionsReady=false;
     el('status').className='status error';
-    el('status').textContent='無法讀取選項，請檢查 Apps Script 網址及選項設定：'+e.message;
+    el('status').textContent='無法載入單位／區域選項。請檢查網路、Apps Script 部署及「選項設定」B、C 欄，重新整理後再試：'+e.message;
   }
 }
 function base64(file){return new Promise((resolve,reject)=>{const reader=new FileReader();
@@ -418,7 +422,7 @@ function closeReportReview_(){
     const node=el(key);
     if(node)node.disabled=false;
   }
-  // Reapply cascading visibility requirements (including sole-unit hiding).
+  // Reapply country-independent unit and district visibility.
   showSteps();
 }
 function reportSummary_(type,values,files){
@@ -588,11 +592,10 @@ function createEditField(key,value){
   const outer=document.createElement('div');outer.className='field';
   const label=document.createElement('label');label.htmlFor='edit-'+key;label.textContent=LOOKUP_KEYS[key]||key;outer.append(label);
   let input;
-  if(['country','unit','district','classType','session','lunarDay'].includes(key)){
+  if(['unit','district','classType','session','lunarDay'].includes(key)){
     input=document.createElement('select');const set=new Set();
-    if(key==='country')options.forEach(x=>set.add(x.country));
-    if(key==='unit')options.filter(x=>x.country===(foundReport.fields.country)).forEach(x=>set.add(x.unit));
-    if(key==='district')options.filter(x=>x.country===foundReport.fields.country&&x.unit===foundReport.fields.unit).forEach(x=>set.add(x.district));
+    if(key==='unit')options.forEach(x=>set.add(x.unit));
+    if(key==='district')options.filter(x=>x.unit===foundReport.fields.unit).forEach(x=>set.add(x.district));
     if(key==='classType')['禮行','義理','仁德'].forEach(x=>set.add(x));
     if(key==='session')for(let i=1;i<=24;i++)set.add(String(i));
     if(key==='lunarDay')['初一','十五','不限日期'].forEach(x=>set.add(x));
@@ -601,6 +604,7 @@ function createEditField(key,value){
   }else{
     input=document.createElement('input');
     input.type=key==='eventDate'?'date':key==='count'?'number':'text';
+    if(key==='country'){input.maxLength=120;input.placeholder='自行輸入國家（不限制單位）';}
     if(key==='lunarMonth'){input.maxLength=10;input.pattern='20[0-9]{2}-(?:閏)?(?:0[1-9]|1[0-2])';}
     if(key==='count'){input.min='0';input.step='1';}
     if(key==='eventDate'){input.min='1000-01-01';input.max='9999-12-31';}
@@ -696,7 +700,7 @@ el('copyAccess').addEventListener('click',async()=>{
 });
 function refreshEditLocation(which){
   if(!foundReport)return;
-  const country=el('edit-country')?.value,unit=el('edit-unit')?.value;
+  const unit=el('edit-unit')?.value;
   const fill=(key,values)=>{
     const node=el('edit-'+key);if(!node)return;
     const previous=node.value;
@@ -705,15 +709,11 @@ function refreshEditLocation(which){
     uniqueValues.forEach(v=>node.add(new Option(v,v)));
     node.value=uniqueValues.includes(previous)?previous:(uniqueValues[0]||'');
   };
-  if(which==='country'){
-    fill('unit',options.filter(x=>x.country===country).map(x=>x.unit));
-    refreshEditLocation('unit');
-  }else if(which==='unit'){
-    fill('district',options.filter(x=>x.country===country&&x.unit===unit).map(x=>x.district));
+  if(which==='unit'){
+    fill('district',options.filter(x=>x.unit===unit).map(x=>x.district));
   }
 }
 el('editableFields').addEventListener('change',e=>{
-  if(e.target.id==='edit-country')refreshEditLocation('country');
   if(e.target.id==='edit-unit')refreshEditLocation('unit');
 });
 
