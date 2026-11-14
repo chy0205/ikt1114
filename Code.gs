@@ -142,7 +142,9 @@ function getOptions_() {
   const sh = ss.getSheetByName('選項設定');
   if (!sh) throw new Error('找不到「選項設定」工作表');
   const rows = sh.getDataRange().getDisplayValues().slice(1);
-  const options = rows.filter(r => r[0] && r[1] && r[2]).map(r => ({country:r[0].trim(),unit:r[1].trim(),district:r[2].trim()}));
+  // Country is entered by the reporter; blank column A must not hide units.
+  const options = rows.filter(r => String(r[1]||'').trim() && String(r[2]||'').trim())
+    .map(r => ({country:String(r[0]||'').trim(),unit:String(r[1]).trim(),district:String(r[2]).trim()}));
   return {ok:true,options};
 }
 function validateCleanPeriod_(p){
@@ -976,8 +978,8 @@ function uniqueAuthorizedDistricts_(allowed){
 }
 function validRegion_(country,unit,district){
   const c=String(country||'').trim(),u=String(unit||'').trim(),d=String(district||'').trim();
-  if(!c||!u||!d||!getOptions_().options.some(o=>o.country===c&&o.unit===u&&o.district===d))
-    throw new Error('指定國別／單位／區域不在選項設定中，停止建立報表');
+  if(!c||!u||!d||!getOptions_().options.some(o=>o.unit===u&&o.district===d))
+    throw new Error('指定單位／區域不在選項設定中，停止建立報表');
   return {country:c,unit:u,district:d};
 }
 function regionViewRows_(country,unit,district){
