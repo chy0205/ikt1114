@@ -1582,7 +1582,8 @@ function awardClaims_(ss){
       if(claims[key])throw new Error('領獎紀錄有重複識別碼，停止結算：'+key);
       if(key!==awardKey_(row[1],row[2],row[3]))
         throw new Error('領獎紀錄識別碼與姓名或獎項不一致，請核對');
-      claims[key]={time:row[5],administrator:row[6]};
+      claims[key]={kind:String(row[1]),recipient:String(row[2]),code:String(row[3]),
+        award:String(row[4]),time:row[5],administrator:row[6]};
     });
   return claims;
 }
@@ -1617,6 +1618,19 @@ function awardCandidates_(data,rules,claims){
       claim?(claim.time instanceof Date?Utilities.formatDate(claim.time,'Asia/Taipei','yyyy/MM/dd HH:mm:ss'):String(claim.time)):'',
       data.stamp]);
   }));
+  // 即使成績被核准取消、門檻調整或獎項停用，已領取的歷史仍顯示。
+  const visible=new Set(rows.map(r=>r[0]));
+  Object.entries(claims).forEach(([key,claim])=>{
+    if(visible.has(key))return;
+    const member=groups[awardKey_(claim.kind,claim.recipient,'')];
+    const rule=rules.find(r=>r.code===claim.code&&r.kind===claim.kind);
+    const score=member&&rule?member.scores[rule.metric]||0:'';
+    const threshold=rule?rule.threshold:'';
+    const claimDate=claim.time instanceof Date?
+      Utilities.formatDate(claim.time,'Asia/Taipei','yyyy/MM/dd HH:mm:ss'):String(claim.time);
+    rows.push([key,claim.kind,claim.recipient,member?Object.keys(member.areas).sort().join('、'):'',
+      claim.code,claim.award,score,threshold,'已領獎（歷史）',claimDate,data.stamp]);
+  });
   rows.sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'zh-Hant')||
     String(a[2]).localeCompare(String(b[2]),'zh-Hant')||
     String(a[4]).localeCompare(String(b[4]),'zh-Hant'));
