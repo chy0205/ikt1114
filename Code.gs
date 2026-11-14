@@ -1675,6 +1675,23 @@ const AWARD_PERSON_METRICS={
   '個人渡眾':2,'家壇渡眾':3,'禮行':4,'義理':5,'仁德':6,'成全安堂回報':7
 };
 const AWARD_HALL_METRICS={'公堂渡眾':1,'禮行':2,'義理':3,'仁德':4};
+const AWARD_QUALIFIED_METRICS=['禮行達標班員','義理達標班員','仁德達標班員'];
+// Official 2027 白陽慈航 award rules: one recipient / hall may earn each distinct badge once.
+// "莊嚴淨土" currently has no evidence source in the six report types and is NOT auto-awarded.
+const AWARD_OFFICIAL_RULES=[
+  ['PERSONAL_3','白陽慈航獎－樣式1小獎章8x8','個人','個人渡眾',3,'是'],
+  ['PERSONAL_6','白陽慈航獎－樣式2小獎章8x8','個人','個人渡眾',6,'是'],
+  ['PERSONAL_10','白陽慈航獎－樣式3小獎章8x8','個人','個人渡眾',10,'是'],
+  ['FAMILY_12','白陽慈航獎－樣式1大獎章12x12（家堂渡眾）','個人','家壇渡眾',12,'是'],
+  ['PUBLIC_30','白陽慈航獎－樣式1大獎章12x12（公堂渡眾）','公堂','公堂渡眾',30,'是'],
+  ['PERSONAL_LI_6','白陽慈航獎－樣式4小獎章8x8（個人禮行）','個人','禮行達標班員',1,'是'],
+  ['PERSONAL_YI_8','白陽慈航獎－樣式5小獎章8x8（個人義理）','個人','義理達標班員',1,'是'],
+  ['PERSONAL_REN_10','白陽慈航獎－樣式6小獎章8x8（個人仁德）','個人','仁德達標班員',1,'是'],
+  ['PUBLIC_LI_10','白陽慈航獎－樣式2大獎章12x12（公堂禮行）','公堂','禮行',10,'是'],
+  ['PUBLIC_YI_10','白陽慈航獎－樣式3大獎章12x12（公堂義理）','公堂','義理',10,'是'],
+  ['PUBLIC_REN_10','白陽慈航獎－樣式4大獎章12x12（公堂仁德）','公堂','仁德',10,'是'],
+  ['TEMPLE_1','白陽慈航獎－樣式5大獎章12x12（成全安堂）','個人','成全安堂回報',1,'是']
+];
 function awardKey_(kind,name,code,area){
   const norm=x=>String(x||'').trim().replace(/\s+/g,' ');
   // Individuals are uniquely identified by both district and name (no year).
@@ -1693,9 +1710,10 @@ function awardProtectedSheet_(ss,title,headers){
 }
 function awardRules_(ss){
   const sh=awardProtectedSheet_(ss,'獎項設定',AWARD_RULE_HEADERS);
-  // 正式獎項規則尚待管理員提供：絕不預設示例門檻。
-  const rows=!sh||sh.getLastRow()<2?[]:
-    sh.getRange(2,1,sh.getLastRow()-1,AWARD_RULE_HEADERS.length).getValues();
+  // Only a new sheet is initialized from the uploaded official PDF; an existing sheet
+  // (including intentionally empty or custom rules) is never overwritten.
+  const rows=!sh||sh.getLastRow()===0?AWARD_OFFICIAL_RULES:
+    sh.getLastRow()<2?[]:sh.getRange(2,1,sh.getLastRow()-1,AWARD_RULE_HEADERS.length).getValues();
   const used={};
   return rows.filter(row=>String(row[0]||'').trim()).map(row=>{
     const [rawCode,rawName,rawKind,rawMetric,rawMin,rawActive]=row;
@@ -1706,7 +1724,7 @@ function awardRules_(ss){
       throw new Error('獎項設定的代碼無效或重複：'+code);
     used[code]=true;
     if(!name||!['個人','公堂'].includes(kind)||
-       !(kind==='個人'?AWARD_PERSON_METRICS:AWARD_HALL_METRICS).hasOwnProperty(metric))
+       !(kind==='個人'?(Object.prototype.hasOwnProperty.call(AWARD_PERSON_METRICS,metric)||AWARD_QUALIFIED_METRICS.includes(metric)):Object.prototype.hasOwnProperty.call(AWARD_HALL_METRICS,metric)))
       throw new Error('獎項設定內容不正確：'+code);
     const threshold=Number(rawMin);
     if(!Number.isInteger(threshold)||threshold<1)
@@ -1791,8 +1809,11 @@ function awardEnsureProtected_(ss,title,headers,existing){
   return sh;
 }
 function awardWrite_(ss,prepared){
-  // 無任何新增獎項時，不會臆造其他獎項的門檻。
-  awardEnsureProtected_(ss,'獎項設定',AWARD_RULE_HEADERS,prepared.ruleSheet);
+  // Preserve user-maintained rules; populate official PDF defaults only upon first creation.
+  const rules=awardEnsureProtected_(ss,'獎項設定',AWARD_RULE_HEADERS,prepared.ruleSheet);
+  if(!prepared.ruleSheet||prepared.ruleSheet.getLastRow()===0)
+    rules.getRange(2,1,AWARD_OFFICIAL_RULES.length,AWARD_RULE_HEADERS.length)
+      .setValues(AWARD_OFFICIAL_RULES);
   awardEnsureProtected_(ss,'領獎紀錄',AWARD_CLAIM_HEADERS,prepared.claimSheet);
   settlementSheet_(ss,'領獎區',AWARD_VIEW_HEADERS,prepared.rows,prepared.viewSchema);
 }
