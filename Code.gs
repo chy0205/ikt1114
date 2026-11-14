@@ -148,7 +148,7 @@ function getOptions_() {
 function validateCleanPeriod_(p){
   const month=String(p.lunarMonth||'').trim(),day=String(p.lunarDay||'').trim();
   // Lunar months may be leap months. The reporter must confirm the actual lunar day.
-  if(!/^20\\d{2}-(?:閏)?(?:0[1-9]|1[0-2])$/.test(month))
+  if(!/^20\d{2}-(?:閏)?(?:0[1-9]|1[0-2])$/.test(month))
     throw new Error('農曆年月請填「2027-01」或「2027-閏06」格式');
   if(!['初一','十五'].includes(day))throw new Error('農曆回報日須選初一或十五');
 }
