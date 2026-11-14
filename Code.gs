@@ -35,9 +35,9 @@ function headersFor_(type) {
   if (!spec) throw new Error('未知回報類別');
   return BASE_HEADERS.concat(spec.fields.map(key => names[key] || FIELD_HEADERS[key]), spec.photo ? ['照片連結'] : []);
 }
-function rowFor_(type,p,id,urls) {
+function rowFor_(type,p,id,urls,submittedAt) {
   const spec=TYPES[type];
-  const row=[id,new Date(),spec.sheet];
+  const row=[id,submittedAt||new Date(),spec.sheet];
   spec.fields.forEach(key => {
     if (key==='count' || key==='session') row.push(Number(p[key]));
     else row.push(safeText_(p[key]));
@@ -229,11 +229,12 @@ function submit_(p) {
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   const created=[];
   try {
-    const spec=TYPES[p.type],sh=reportSheet_(p.type),id=Utilities.getUuid();
+    const submittedAt=new Date(),spec=TYPES[p.type],
+      sh=reportSheet_(p.type,reportYear_(submittedAt)),id=Utilities.getUuid();
     const files=storePhotos_(p.files||[],id,created);
     const pass=issueSecret_();
     // 工作表仍保持現有每類專屬欄位；憑證及狀態分開存放在「回報索引」。
-    sh.appendRow(rowFor_(p.type,p,id,files));
+    sh.appendRow(rowFor_(p.type,p,id,files,submittedAt));
     try {
       indexSheet_().appendRow([id,p.type,pass.salt,pass.hash,'已回報',1,new Date(),new Date()]);
     }catch(err){
