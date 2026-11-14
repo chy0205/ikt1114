@@ -1759,7 +1759,8 @@ function awardDataFromTotals_(ss){
       .map(r=>[r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]]),
     halls:rows.filter(r=>r[0]==='公堂')
       .map(r=>[r[2],r[9],r[10],r[11],r[12]]),
-    stamp:Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss')};
+    // Keep the last manual-settlement timestamp even when a prize is registered later.
+    stamp:String(cursor.getRange(2,3,1,1).getDisplayValues()[0][0]||'')};
 }
 function awardEventSheet_(ss){
   return awardProtectedSheet_(ss,'領獎異動紀錄',AWARD_EVENT_HEADERS);
