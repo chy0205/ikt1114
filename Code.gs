@@ -365,7 +365,7 @@ function migrateRawReportSheetsByYear(){
     const ss=sheet_(),cursor=ss.getSheetByName('領獎結算游標');
     if(cursor&&cursor.getLastRow()>1)
       throw new Error('已有領獎增量基準，搬移原表會改變游標。請先由管理員規劃安全重建，不可直接搬移');
-    const jobs=[],seen={};
+    const jobs=[],seen={},oldIds={};
     // Precheck all six source tabs and all existing destination tabs before writes.
     Object.keys(TYPES).forEach(type=>{
       reportSheets_(type).forEach(sh=>{
@@ -386,8 +386,8 @@ function migrateRawReportSheetsByYear(){
       rows.forEach(row=>{
         const id=String(row[0]||'').trim();
         if(!id)return;
-        if(seen[id]&&seen[id]===TYPES[type].sheet)
-          throw new Error('舊原表內重複回報 UUID：'+id);
+        if(oldIds[id])throw new Error('舊原表出現重複回報 UUID：'+id);
+        oldIds[id]=true;
         const submitted=row[1];
         if(!(submitted instanceof Date)||!Number.isFinite(submitted.getTime()))
           throw new Error('舊表「'+TYPES[type].sheet+'」送出時間不是有效日期：'+id);
