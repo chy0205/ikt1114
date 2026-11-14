@@ -581,6 +581,7 @@ function onOpen(e){
     .addItem('審核修改／取消申請…','adminReviewPending')
     .addItem('成績、索引與照片健檢…','adminIntegrityCheckPrompt')
     .addItem('重新結算個人與區域成績…','adminRecalculateScoresPrompt')
+    .addItem('登記已領獎（不可重領）…','adminRegisterAwardClaimPrompt')
     .addItem('啟用每5分鐘自動結算…','adminInstallAutoSettlementPrompt')
     .addSeparator()
     .addItem('核發舊式區域密碼（選用）…','adminIssueRegionalAccessPrompt')
@@ -1521,11 +1522,174 @@ function settlementSheet_(ss,title,headers,rows,checked){
   if(sh.getFilter())sh.getFilter().remove();
   sh.getRange(1,1,sh.getMaxRows(),width).createFilter();
 }
+
+/**
+ * 領獎區只是一張可重建的候選清單；「領獎紀錄」是不可由結算覆寫的領取憑證。
+ * 領獎鍵不含年份，避免跨年度再次領同一個獎。現有個人成績只有姓名，
+ * 同名不同人可能碰撞；正式發獎前應由管理員核實身分。
+ */
+const AWARD_RULE_HEADERS=['獎項代碼','獎項名稱','對象','成績項目','達標門檻','啟用'];
+const AWARD_CLAIM_HEADERS=['領獎識別碼','對象','姓名／堂號','獎項代碼','獎項名稱','領獎時間','登記管理員','備註'];
+const AWARD_VIEW_HEADERS=['領獎識別碼','對象','姓名／堂號','來源區域','獎項代碼','獎項名稱','累計成績','達標門檻','領獎狀態','領獎時間','結算時間'];
+const AWARD_PERSON_METRICS={
+  '個人渡眾':2,'家壇渡眾':3,'禮行':4,'義理':5,'仁德':6,'成全安堂回報':7
+};
+const AWARD_HALL_METRICS={'公堂渡眾':1,'禮行':2,'義理':3,'仁德':4};
+function awardKey_(kind,name,code){
+  return JSON.stringify([kind,String(name||'').trim().replace(/\\s+/g,' '),String(code||'').trim()]);
+}
+function awardProtectedSheet_(ss,title,headers){
+  const sheet=ss.getSheetByName(title);
+  if(!sheet)return null;
+  if(sheet.getLastRow()===0)return sheet;
+  const width=Math.max(sheet.getLastColumn(),headers.length);
+  const actual=sheet.getRange(1,1,1,width).getDisplayValues()[0];
+  if(headers.some((h,i)=>actual[i]!==h)||actual.slice(headers.length).some(x=>String(x||'')!==''))
+    throw new Error('「'+title+'」分頁已有其他格式，為保護資料已停止；請先備份並檢查名稱。');
+  return sheet;
+}
+function awardRules_(ss){
+  const sh=awardProtectedSheet_(ss,'獎項設定',AWARD_RULE_HEADERS);
+  // 只建立使用者明確舉例的「個人渡眾3人」；其他獎項須管理員新增。
+  const rows=!sh||sh.getLastRow()===0?
+    [['PERSONAL_3','個人渡眾三人','個人','個人渡眾',3,'是']]:
+    sh.getLastRow()<2?[]:sh.getRange(2,1,sh.getLastRow()-1,AWARD_RULE_HEADERS.length).getValues();
+  const used={};
+  return rows.filter(row=>String(row[0]||'').trim()).map(row=>{
+    const [rawCode,rawName,rawKind,rawMetric,rawMin,rawActive]=row;
+    const code=String(rawCode).trim(),name=String(rawName||'').trim(),
+      kind=String(rawKind||'').trim(),metric=String(rawMetric||'').trim();
+    const enabled=['是','TRUE','true','1','啟用'].includes(String(rawActive).trim());
+    if(!/^[a-zA-Z0-9_-]{1,60}$/.test(code)||used[code])
+      throw new Error('獎項設定的代碼無效或重複：'+code);
+    used[code]=true;
+    if(!name||!['個人','公堂'].includes(kind)||
+       !(kind==='個人'?AWARD_PERSON_METRICS:AWARD_HALL_METRICS).hasOwnProperty(metric))
+      throw new Error('獎項設定內容不正確：'+code);
+    const threshold=Number(rawMin);
+    if(!Number.isInteger(threshold)||threshold<1)
+      throw new Error('獎項設定門檻須為大於0的整數：'+code);
+    return {code,name,kind,metric,threshold,enabled};
+  });
+}
+function awardClaims_(ss){
+  const sh=awardProtectedSheet_(ss,'領獎紀錄',AWARD_CLAIM_HEADERS);
+  const claims={};
+  if(sh&&sh.getLastRow()>1)
+    sh.getRange(2,1,sh.getLastRow()-1,AWARD_CLAIM_HEADERS.length).getValues().forEach(row=>{
+      const key=String(row[0]||'').trim();
+      if(!key)return;
+      if(claims[key])throw new Error('領獎紀錄有重複識別碼，停止結算：'+key);
+      if(key!==awardKey_(row[1],row[2],row[3]))
+        throw new Error('領獎紀錄識別碼與姓名或獎項不一致，請核對');
+      claims[key]={time:row[5],administrator:row[6]};
+    });
+  return claims;
+}
+function awardCandidates_(data,rules,claims){
+  const groups={};
+  // 同一人跨區的同類成績合計；同一姓名視為同一領獎身分。
+  data.personal.forEach(row=>{
+    const name=String(row[1]||'').trim();if(!name)return;
+    const key=awardKey_('個人',name,'');
+    if(!groups[key])groups[key]={kind:'個人',name,areas:{},scores:{}};
+    const g=groups[key];g.areas[String(row[0])]=true;
+    Object.keys(AWARD_PERSON_METRICS).forEach(metric=>{
+      g.scores[metric]=(g.scores[metric]||0)+Number(row[AWARD_PERSON_METRICS[metric]]||0);
+    });
+  });
+  data.halls.forEach(row=>{
+    const name=String(row[0]||'').trim();if(!name)return;
+    const key=awardKey_('公堂',name,'');
+    if(!groups[key])groups[key]={kind:'公堂',name,areas:{},scores:{}};
+    const g=groups[key];
+    Object.keys(AWARD_HALL_METRICS).forEach(metric=>{
+      g.scores[metric]=(g.scores[metric]||0)+Number(row[AWARD_HALL_METRICS[metric]]||0);
+    });
+  });
+  const rows=[];
+  Object.values(groups).forEach(g=>rules.filter(rule=>rule.enabled&&rule.kind===g.kind).forEach(rule=>{
+    const score=g.scores[rule.metric]||0;
+    if(score<rule.threshold)return;
+    const key=awardKey_(g.kind,g.name,rule.code),claim=claims[key];
+    rows.push([key,g.kind,g.name,Object.keys(g.areas).sort((a,b)=>a.localeCompare(b,'zh-Hant')).join('、'),
+      rule.code,rule.name,score,rule.threshold,claim?'已領獎':'待領獎',
+      claim?(claim.time instanceof Date?Utilities.formatDate(claim.time,'Asia/Taipei','yyyy/MM/dd HH:mm:ss'):String(claim.time)):'',
+      data.stamp]);
+  }));
+  rows.sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'zh-Hant')||
+    String(a[2]).localeCompare(String(b[2]),'zh-Hant')||
+    String(a[4]).localeCompare(String(b[4]),'zh-Hant'));
+  return rows;
+}
+function awardPrepare_(ss,data){
+  // 預先核對保護工作表，不能清空既有的領獎歷史。
+  const ruleSheet=awardProtectedSheet_(ss,'獎項設定',AWARD_RULE_HEADERS);
+  const claimSheet=awardProtectedSheet_(ss,'領獎紀錄',AWARD_CLAIM_HEADERS);
+  const viewSchema=settlementSchema_(ss,'領獎區',AWARD_VIEW_HEADERS);
+  const rules=awardRules_(ss),claims=awardClaims_(ss);
+  return {ruleSheet,claimSheet,viewSchema,rules,claims,rows:awardCandidates_(data,rules,claims)};
+}
+function awardEnsureProtected_(ss,title,headers,existing){
+  let sh=existing;
+  if(!sh)sh=ss.insertSheet(title);
+  if(sh.getLastRow()===0)sh.getRange(1,1,1,headers.length).setValues([headers]);
+  sh.setFrozenRows(1);
+  return sh;
+}
+function awardWrite_(ss,prepared){
+  // 無任何新增獎項時，不會臆造其他獎項的門檻。
+  const rules=awardEnsureProtected_(ss,'獎項設定',AWARD_RULE_HEADERS,prepared.ruleSheet);
+  if(rules.getLastRow()===1&&prepared.rules.length===1&&prepared.rules[0].code==='PERSONAL_3')
+    rules.getRange(2,1,1,AWARD_RULE_HEADERS.length)
+      .setValues([['PERSONAL_3','個人渡眾三人','個人','個人渡眾',3,'是']]);
+  awardEnsureProtected_(ss,'領獎紀錄',AWARD_CLAIM_HEADERS,prepared.claimSheet);
+  settlementSheet_(ss,'領獎區',AWARD_VIEW_HEADERS,prepared.rows,prepared.viewSchema);
+}
+/** 管理員核發完成後才登記，永不因年度或下一次結算自動清除。 */
+function registerAwardClaim(awardId,note){
+  const admin=requireAdmin_(),key=String(awardId||'').trim();
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    const ss=sheet_(),data=settlementRows_(),prepared=awardPrepare_(ss,data);
+    const eligible=prepared.rows.find(r=>r[0]===key);
+    if(!eligible)throw new Error('找不到目前符合資格的領獎對象，請先重新結算');
+    if(prepared.claims[key])throw new Error('此人／堂號已領過此獎，不可重複領獎');
+    const claims=awardEnsureProtected_(ss,'領獎紀錄',AWARD_CLAIM_HEADERS,prepared.claimSheet);
+    claims.appendRow([key,eligible[1],safeRegionCell_(eligible[2]),eligible[4],
+      safeRegionCell_(eligible[5]),new Date(),admin,safeText_(String(note||'').slice(0,500))]);
+    // 保留領獎歷史，即使下次重新結算成績減少也不消失。
+    auditSheet_().appendRow([new Date(),'award_claim','','',admin,'',
+      JSON.stringify({key,recipient:eligible[2],award:eligible[5]}),'已登記領獎（永久紀錄）']);
+    awardWrite_(ss,awardPrepare_(ss,settlementRows_()));
+    return {ok:true,awardId:key,recipient:eligible[2],award:eligible[5],status:'已領獎'};
+  }finally{lock.releaseLock();}
+}
+function adminRegisterAwardClaimPrompt(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi(),entry=ui.prompt('登記領獎',
+    '請從「領獎區」複製 A 欄領獎識別碼，貼在此處。此動作表示獎品已實際發給對方，且不得重複領同一獎。',
+    ui.ButtonSet.OK_CANCEL);
+  if(entry.getSelectedButton()!==ui.Button.OK)return;
+  const key=entry.getResponseText().trim();
+  // Before confirmation, validate eligibility and claimed status without mutations.
+  const ss=sheet_(),prep=awardPrepare_(ss,settlementRows_());
+  const target=prep.rows.find(r=>r[0]===key);
+  if(!target)throw new Error('此識別碼不在符合資格的領獎清單');
+  if(prep.claims[key])throw new Error('此人／堂號已領取此獎');
+  if(ui.alert('確認獎品已交付',
+    '對象：'+target[2]+'\\n獎項：'+target[5]+'\\n累計：'+target[6]+
+    '\\n\\n確認已實際交付並永久記錄？',ui.ButtonSet.YES_NO)!==ui.Button.YES)return;
+  const result=registerAwardClaim(key,'由管理員登記實際交付');
+  ui.alert('領獎登記成功',result.recipient+'：'+result.award+'\\n不會再次列為待領獎。',ui.ButtonSet.OK);
+  return result;
+}
 function recalculateScores(options){
   const admin=requireAdmin_();
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   try{
     const ss=sheet_(),data=settlementRows_();
+    const award=awardPrepare_(ss,data);
     // 四個目標都先檢查表頭，再修改任何結算資料。
     const specs=[
       ['個人成績結算',SETTLEMENT_PERSON_HEADERS,data.personal],
@@ -1537,12 +1701,13 @@ function recalculateScores(options){
     // 先備份所有需要升級的舊結算表，保留上一版的結果。
     specs.filter(x=>x.schema.upgrade).forEach(x=>backupSettlementBeforeUpgrade_(x.schema.sheet));
     specs.forEach(x=>settlementSheet_(ss,x.name,x.headers,x.rows,x.schema));
+    awardWrite_(ss,award);
     if(!options||!options.silent)
       auditSheet_().appendRow([new Date(),'settlement_refresh','','',admin,'',JSON.stringify({
         people:data.personal.length,publicPeople:data.publicPeople.length,halls:data.halls.length,regions:data.regional.length,pending:data.pendingCount,
         legacyWithoutIndex:data.missingIndex
       }),'重新結算個人與區域成績；原始紀錄未更動']);
-    return {ok:true,personalRows:data.personal.length,publicRows:data.publicPeople.length,hallRows:data.halls.length,regionalRows:data.regional.length,
+    return {ok:true,personalRows:data.personal.length,publicRows:data.publicPeople.length,hallRows:data.halls.length,regionalRows:data.regional.length,awardRows:award.rows.length,
       pendingCount:data.pendingCount,missingIndex:data.missingIndex,updatedAt:data.stamp};
   }finally{lock.releaseLock();}
 }
