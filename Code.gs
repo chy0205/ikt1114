@@ -846,11 +846,12 @@ function regionViewRows_(country,unit,district){
     });
   const total=[target.country,target.unit,target.district,0,0,0,0,0,0,0,0,0,0,0],details=[];
   Object.keys(TYPES).forEach(type=>{
-    const spec=TYPES[type],sh=ss.getSheetByName(spec.sheet);
-    if(!sh||sh.getLastRow()<2)return;
+    const spec=TYPES[type];
+    reportSheets_(type).forEach(sh=>{
+    if(sh.getLastRow()<2)return;
     const header=headersFor_(type),actual=sh.getRange(1,1,1,header.length).getDisplayValues()[0];
     if(header.some((h,i)=>h!==actual[i]))
-      throw new Error('工作表「'+spec.sheet+'」欄位格式不符，為避免誤送資料已停止');
+      throw new Error('工作表「'+sh.getName()+'」欄位格式不符，為避免誤送資料已停止');
     sh.getRange(2,1,sh.getLastRow()-1,header.length).getValues().forEach(row=>{
       if(!row[0])return;
       const p={};spec.fields.forEach((k,i)=>p[k]=row[i+3]);
@@ -860,7 +861,7 @@ function regionViewRows_(country,unit,district){
       const count=Number(p.count||0);
       const photoCount=spec.photo?String(row[row.length-1]||'').split('\n').filter(Boolean).length:0;
       details.push([
-        id,row[1],spec.sheet,target.country,target.unit,target.district,state,
+        id,row[1],sh.getName(),target.country,target.unit,target.district,state,
         spec.fields.includes('count')?count:'',
         p.classType||'',p.session||'',p.eventDate||'',p.guide||'',
         p.reporterName||'',p.temple||'',p.host||'',p.mentor||'',p.student||'',photoCount
@@ -875,6 +876,7 @@ function regionViewRows_(country,unit,district){
           type==='personalClass'?1:count;
       }
       total[13]++;
+    });
     });
   });
   details.sort((a,b)=>String(a[1]).localeCompare(String(b[1])));
@@ -1284,8 +1286,9 @@ function auditReportIntegrity(includeDriveChecks){
     indexIds[id]={type:String(row[1]),status:String(row[4])};
   });
   Object.keys(TYPES).forEach(type=>{
-    const spec=TYPES[type],sh=ss.getSheetByName(spec.sheet);
-    if(!sh||sh.getLastRow()<2)return;
+    const spec=TYPES[type];
+    reportSheets_(type).forEach(sh=>{
+    if(sh.getLastRow()<2)return;
     const expected=headersFor_(type);
     const cols=sh.getRange(1,1,1,expected.length).getDisplayValues()[0];
     if(expected.some((x,i)=>x!==cols[i])){
@@ -1317,6 +1320,7 @@ function auditReportIntegrity(includeDriveChecks){
           }
         }
       });
+    });
     });
   });
   Object.keys(indexIds).forEach(id=>{
@@ -1385,8 +1389,9 @@ function settlementRows_(){
     });
   const stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss');
   Object.keys(TYPES).forEach(type=>{
-    const spec=TYPES[type],sh=ss.getSheetByName(spec.sheet);
-    if(!sh||sh.getLastRow()<2)return;
+    const spec=TYPES[type];
+    reportSheets_(type).forEach(sh=>{
+    if(sh.getLastRow()<2)return;
     const header=headersFor_(type),observed=sh.getRange(1,1,1,header.length).getDisplayValues()[0];
     if(header.some((h,i)=>h!==observed[i]))
       throw new Error('「'+spec.sheet+'」欄位格式不符，停止結算以免計錯');
@@ -1448,6 +1453,7 @@ function settlementRows_(){
           publicPeople[key][type==='public'?3:4+levelIndex]+=score;
         }
       }
+    });
     });
   });
   const sort=(a,b)=>{
