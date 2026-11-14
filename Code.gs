@@ -469,6 +469,8 @@ function reviewChangeRequest(requestId,decision,note){
     idx.sheet.getRange(idx.row,8).setValue(stamp);
     cs.getRange(row,9).setValue(decision==='approve'?'已核准':'已拒絕');
     cs.getRange(row,11,1,3).setValues([[stamp,admin,safeText_(note||'')]]);
+    if(decision==='approve')awardApprovedChange_(String(r[1]),String(idx.values[1]),
+      String(r[2]),report.values,after);
     return {ok:true,requestId,status:decision==='approve'?'已核准':'已拒絕'};
   }finally{lock.releaseLock();}
 }
@@ -1695,6 +1697,212 @@ function adminRegisterAwardClaimPrompt(){
   const result=registerAwardClaim(key,'由管理員登記實際交付');
   ui.alert('領獎登記成功',result.recipient+'：'+result.award+'\n不會再次列為待領獎。',ui.ButtonSet.OK);
   return result;
+}
+
+/**
+ * Manual, incremental award settlement.  Initial click creates a baseline;
+ * later clicks read only newly appended source rows and approved change events.
+ * No year filter is used.  Normal five-minute score settlement is independent.
+ */
+const AWARD_TOTAL_HEADERS=['對象','區域','姓名／堂號','個人渡眾','家壇渡眾',
+  '禮行','義理','仁德','成全安堂回報','公堂渡眾',
+  '公堂禮行','公堂義理','公堂仁德'];
+const AWARD_CURSOR_HEADERS=['來源類別','已結算至來源列','結算時間'];
+const AWARD_EVENT_HEADERS=['異動時間','回報編號','回報類別','異動類型','異動前JSON','異動後JSON'];
+function awardSourceObject_(type,row){
+  const obj={};
+  TYPES[type].fields.forEach((k,i)=>obj[k]=row[i+3]);
+  return obj;
+}
+function awardEffect_(type,obj,sign,totals){
+  if(!obj||!TYPES[type])throw new Error('領獎增量資料類別不正確');
+  const area=String(obj.district||'').trim();
+  const name=String(obj[type==='personal'?'guide':type==='family'?'host':
+    type==='personalClass'||type==='temple'?'mentor':'temple']||'').trim();
+  if(!area||!String(obj.country||'').trim()||!String(obj.unit||'').trim())
+    throw new Error('領獎增量資料缺少國別、單位或區域');
+  if(!name)return; // Same convention as the four score settlement sheets.
+  const kind=type==='public'||type==='publicClass'?'公堂':'個人';
+  const key=awardKey_(kind,name,'',kind==='個人'?area:'');
+  const score=['personalClass','temple'].includes(type)?1:Number(obj.count);
+  if(!Number.isInteger(score)||score<0)throw new Error('領獎回報分數必須是非負整數');
+  const classType=String(obj.classType||'').trim();
+  const level=['禮行','義理','仁德'].indexOf(classType);
+  if(['personalClass','publicClass'].includes(type)&&level<0)
+    throw new Error('領獎進階班類別必須是禮行、義理、仁德');
+  const at={personal:3,family:4,temple:8,public:9}[type]||
+    (type==='personalClass'?5+level:10+level);
+  if(!totals[key])totals[key]=[kind,kind==='個人'?area:'',name,0,0,0,0,0,0,0,0,0,0];
+  totals[key][at]+=sign*score;
+}
+function awardTotalsRead_(ss){
+  const sh=awardProtectedSheet_(ss,'領獎累計',AWARD_TOTAL_HEADERS),totals={};
+  if(sh&&sh.getLastRow()>1)
+    sh.getRange(2,1,sh.getLastRow()-1,AWARD_TOTAL_HEADERS.length).getValues().forEach(row=>{
+      if(!String(row[0]||'').trim())return;
+      const key=awardKey_(row[0],row[2],'',row[1]);
+      if(totals[key])throw new Error('領獎累計有重複身分，請管理員核對：'+key);
+      const numbers=row.slice(3).map(Number);
+      if(numbers.some(n=>!Number.isInteger(n)||n<0))
+        throw new Error('領獎累計含有不合法數字，請先核對：'+key);
+      totals[key]=[String(row[0]),String(row[1]),String(row[2]),...numbers];
+    });
+  return {sheet:sh,totals};
+}
+function awardDataFromTotals_(ss){
+  const cursor=awardProtectedSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS);
+  if(!cursor||cursor.getLastRow()<2)
+    throw new Error('尚未按「立即結算領獎名單」建立累計基準');
+  const obj=awardTotalsRead_(ss).totals;
+  const rows=Object.values(obj);
+  return {personal:rows.filter(r=>r[0]==='個人')
+      .map(r=>[r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]]),
+    halls:rows.filter(r=>r[0]==='公堂')
+      .map(r=>[r[2],r[9],r[10],r[11],r[12]]),
+    stamp:Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss')};
+}
+function awardEventSheet_(ss){
+  return awardProtectedSheet_(ss,'領獎異動紀錄',AWARD_EVENT_HEADERS);
+}
+function awardApprovedChange_(id,type,action,before,after){
+  const ss=sheet_(),sh=awardEventSheet_(ss)||ss.insertSheet('領獎異動紀錄');
+  if(sh.getLastRow()===0)sh.getRange(1,1,1,AWARD_EVENT_HEADERS.length).setValues([AWARD_EVENT_HEADERS]);
+  sh.appendRow([new Date(),id,type,action,JSON.stringify(before),JSON.stringify(after)]);
+}
+function awardIncrementRows_(ss,cursors,initial,totals){
+  const sources=Object.keys(TYPES),newIds=new Set(),next={};
+  let processed=0;
+  // Only the first click scans the historical index for canceled reports.
+  const states={};
+  if(initial){
+    const idx=ss.getSheetByName('回報索引');
+    if(idx&&idx.getLastRow()>1)
+      idx.getRange(2,1,idx.getLastRow()-1,5).getValues()
+        .forEach(r=>{if(r[0])states[String(r[0])]=String(r[4]);});
+  }
+  for(const type of sources){
+    const spec=TYPES[type],sh=ss.getSheetByName(spec.sheet);
+    const old=initial?1:Number(cursors[type]||1),last=sh?sh.getLastRow():1;
+    if(last<old)throw new Error('「'+spec.sheet+'」資料列數減少，請檢查是否有人刪除舊回報');
+    next[type]=last;
+    if(!sh||last<2)continue;
+    const headers=headersFor_(type),got=sh.getRange(1,1,1,headers.length).getDisplayValues()[0];
+    if(headers.some((h,i)=>h!==got[i]))throw new Error('「'+spec.sheet+'」表頭不符，停止領獎結算');
+    if(last<=old)continue;
+    const rows=sh.getRange(old+1,1,last-old,headers.length).getValues();
+    rows.forEach(row=>{
+      const id=String(row[0]||'').trim();if(!id)return;
+      if(newIds.has(id))throw new Error('新回報 UUID 重複：'+id);
+      newIds.add(id);
+      const status=initial?states[id]:(()=>{
+        const indexed=findIndex_(id);
+        return indexed?String(indexed.values[4]):'已回報';
+      })();
+      if(status!=='已取消')awardEffect_(type,awardSourceObject_(type,row),1,totals);
+      processed++;
+    });
+  }
+  // Each administrator-approved edit/cancel is recorded after its source write.
+  const event=awardEventSheet_(ss),eventLast=event?event.getLastRow():1;
+  const oldEvent=initial?eventLast:Number(cursors.EVENTS||1);
+  if(eventLast<oldEvent)throw new Error('領獎異動紀錄被縮短，必須人工核對');
+  next.EVENTS=eventLast;
+  let corrected=0;
+  if(!initial&&event&&eventLast>oldEvent){
+    event.getRange(oldEvent+1,1,eventLast-oldEvent,AWARD_EVENT_HEADERS.length)
+      .getValues().forEach(row=>{
+        const id=String(row[1]||'').trim(),type=String(row[2]),action=String(row[3]);
+        if(!id||newIds.has(id))return; // new rows already reflect their latest state
+        if(!TYPES[type]||!['modify','cancel'].includes(action))
+          throw new Error('領獎異動紀錄的類型或操作不正確');
+        const before=JSON.parse(String(row[4]||'{}'));
+        const after=JSON.parse(String(row[5]||'{}'));
+        awardEffect_(type,before,-1,totals);
+        if(action==='modify')awardEffect_(type,after,1,totals);
+        corrected++;
+      });
+  }
+  const rows=Object.values(totals).filter(r=>r.slice(3).some(n=>n!==0));
+  if(rows.some(r=>r.slice(3).some(n=>n<0||!Number.isInteger(n))))
+    throw new Error('領獎增量計算結果出現負數，停止更新；可能有未記錄的舊異動');
+  rows.sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'zh-Hant')||
+    String(a[1]).localeCompare(String(b[1]),'zh-Hant')||
+    String(a[2]).localeCompare(String(b[2]),'zh-Hant'));
+  return {rows,next,processed,corrected};
+}
+function settleAwardsNow(){
+  const admin=requireAdmin_();
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    const ss=sheet_();
+    const cursor=awardProtectedSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS);
+    const initial=!cursor||cursor.getLastRow()<2;
+    const cursors={};
+    if(!initial)cursor.getRange(2,1,cursor.getLastRow()-1,AWARD_CURSOR_HEADERS.length)
+      .getValues().forEach(r=>{if(r[0])cursors[String(r[0])]=Number(r[1]);});
+    if(!initial&&Object.keys(TYPES).concat('EVENTS').some(k=>!Number.isInteger(cursors[k])||cursors[k]<1))
+      throw new Error('領獎結算游標不完整，已停止以免重複計算');
+    const current=awardTotalsRead_(ss);
+    if(initial&&current.sheet&&current.sheet.getLastRow()>1)
+      throw new Error('存在舊領獎累計但沒有游標，請使用修復功能重建');
+    const totals=initial?{}:current.totals;
+    const delta=awardIncrementRows_(ss,cursors,initial,totals);
+    const stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss');
+    const awardData={personal:delta.rows.filter(r=>r[0]==='個人')
+      .map(r=>[r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]]),
+      halls:delta.rows.filter(r=>r[0]==='公堂')
+      .map(r=>[r[2],r[9],r[10],r[11],r[12]]),stamp};
+    const prepared=awardPrepare_(ss,awardData);
+    const totalSchema=settlementSchema_(ss,'領獎累計',AWARD_TOTAL_HEADERS);
+    // No automatic year split, and no new prize rules are invented.
+    settlementSheet_(ss,'領獎累計',AWARD_TOTAL_HEADERS,delta.rows,totalSchema);
+    awardWrite_(ss,prepared);
+    const cursorRows=Object.keys(TYPES).concat('EVENTS')
+      .map(k=>[k,delta.next[k],stamp]);
+    settlementSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS,cursorRows,
+      {sheet:cursor,upgrade:false});
+    auditSheet_().appendRow([new Date(),'award_increment','','',admin,'',
+      JSON.stringify({initial,newReports:delta.processed,approvedChanges:delta.corrected,awards:prepared.rows.length}),
+      '手動增量結算領獎，未改動原始成績及領獎紀錄']);
+    return {ok:true,initial,newReports:delta.processed,
+      approvedChanges:delta.corrected,recipients:delta.rows.length,awards:prepared.rows.length,stamp};
+  }finally{lock.releaseLock();}
+}
+function adminSettleAwardsPrompt(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi();
+  if(ui.alert('立即結算領獎名單',
+    '第一次建立累計基準；下一次只處理新回報及核准異動。所有成績不分年度，按「區域＋姓名」辨識個人。確定更新領獎區？',
+    ui.ButtonSet.YES_NO)!==ui.Button.YES)return;
+  const result=settleAwardsNow();
+  ui.alert('領獎結算完成',
+    (result.initial?'首次建立累計基準':'增量結算')+'\\n新增回報：'+result.newReports+
+    ' 筆\\n核准異動：'+result.approvedChanges+' 筆\\n領獎名單：'+result.awards+' 筆',
+    ui.ButtonSet.OK);
+  return result;
+}
+function adminRebuildAwardTotalsPrompt(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi();
+  if(ui.alert('修復／重建領獎累計',
+    '僅當資料游標損壞或手動更改原始成績時使用。會從頭讀取全部六種回報，重建累計與游標，但不會刪除領獎紀錄。確定嗎？',
+    ui.ButtonSet.YES_NO)!==ui.Button.YES)return;
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    const ss=sheet_(),cursor=awardProtectedSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS);
+    const totals={},delta=awardIncrementRows_(ss,{},true,totals),stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss');
+    const data={personal:delta.rows.filter(r=>r[0]==='個人')
+      .map(r=>[r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]]),
+      halls:delta.rows.filter(r=>r[0]==='公堂').map(r=>[r[2],r[9],r[10],r[11],r[12]]),stamp};
+    const prepared=awardPrepare_(ss,data);
+    const total=settlementSchema_(ss,'領獎累計',AWARD_TOTAL_HEADERS);
+    settlementSheet_(ss,'領獎累計',AWARD_TOTAL_HEADERS,delta.rows,total);
+    awardWrite_(ss,prepared);
+    settlementSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS,
+      Object.keys(TYPES).concat('EVENTS').map(k=>[k,delta.next[k],stamp]),{sheet:cursor,upgrade:false});
+    ui.alert('領獎基準重建完成','共計算 '+delta.processed+' 筆原始回報，歷史領獎紀錄未刪除。',ui.ButtonSet.OK);
+    return {ok:true,reports:delta.processed};
+  }finally{lock.releaseLock();}
 }
 function recalculateScores(options){
   const admin=requireAdmin_();
