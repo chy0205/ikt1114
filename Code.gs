@@ -1536,7 +1536,7 @@ const AWARD_PERSON_METRICS={
 };
 const AWARD_HALL_METRICS={'公堂渡眾':1,'禮行':2,'義理':3,'仁德':4};
 function awardKey_(kind,name,code){
-  return JSON.stringify([kind,String(name||'').trim().replace(/\\s+/g,' '),String(code||'').trim()]);
+  return JSON.stringify([kind,String(name||'').trim().replace(/\s+/g,' '),String(code||'').trim()]);
 }
 function awardProtectedSheet_(ss,title,headers){
   const sheet=ss.getSheetByName(title);
@@ -1692,10 +1692,10 @@ function adminRegisterAwardClaimPrompt(){
   if(!target)throw new Error('此識別碼不在符合資格的領獎清單');
   if(prep.claims[key])throw new Error('此人／堂號已領取此獎');
   if(ui.alert('確認獎品已交付',
-    '對象：'+target[2]+'\\n獎項：'+target[5]+'\\n累計：'+target[6]+
-    '\\n\\n確認已實際交付並永久記錄？',ui.ButtonSet.YES_NO)!==ui.Button.YES)return;
+    '對象：'+target[2]+'\n獎項：'+target[5]+'\n累計：'+target[6]+
+    '\n\n確認已實際交付並永久記錄？',ui.ButtonSet.YES_NO)!==ui.Button.YES)return;
   const result=registerAwardClaim(key,'由管理員登記實際交付');
-  ui.alert('領獎登記成功',result.recipient+'：'+result.award+'\\n不會再次列為待領獎。',ui.ButtonSet.OK);
+  ui.alert('領獎登記成功',result.recipient+'：'+result.award+'\n不會再次列為待領獎。',ui.ButtonSet.OK);
   return result;
 }
 function recalculateScores(options){
