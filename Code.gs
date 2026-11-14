@@ -1676,6 +1676,8 @@ const AWARD_PERSON_METRICS={
 };
 const AWARD_HALL_METRICS={'公堂渡眾':1,'禮行':2,'義理':3,'仁德':4};
 const AWARD_QUALIFIED_METRICS=['禮行達標班員','義理達標班員','仁德達標班員'];
+// Official PDF explicitly limits the first two personal donation badge ranges.
+const AWARD_UPPER_LIMITS={PERSONAL_3:5,PERSONAL_6:9};
 // Official 2027 白陽慈航 award rules: one recipient / hall may earn each distinct badge once.
 // "莊嚴淨土" currently has no evidence source in the six report types and is NOT auto-awarded.
 const AWARD_OFFICIAL_RULES=[
@@ -1774,7 +1776,9 @@ function awardCandidates_(data,rules,claims){
   });
   const rows=[];
   Object.values(groups).forEach(g=>rules.filter(rule=>rule.enabled&&rule.kind===g.kind).forEach(rule=>{
-    const score=g.scores[rule.metric]||0;if(score<rule.threshold)return;
+    const score=g.scores[rule.metric]||0;
+    if(score<rule.threshold||
+       (Object.prototype.hasOwnProperty.call(AWARD_UPPER_LIMITS,rule.code)&&score>AWARD_UPPER_LIMITS[rule.code]))return;
     const key=awardKey_(g.kind,g.name,rule.code,g.area),claim=claims[key];
     rows.push([key,g.kind,g.name,g.area,rule.code,rule.name,score,rule.threshold,
       claim?'已領獎':'待領獎',
