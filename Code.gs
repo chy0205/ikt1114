@@ -256,12 +256,8 @@ function setupSheets() {
   // 新增 D 欄作為區域負責人手動輸入密碼；不覆蓋已存在的 D1 標題。
   if (!String(options.getRange('D1').getDisplayValue()||'').trim())
     options.getRange('D1').setValue('區域查詢密碼');
-  Object.keys(TYPES).forEach(type => {
-    const spec=TYPES[type];
-    let sh=ss.getSheetByName(spec.sheet);
-    if(!sh)sh=ss.insertSheet(spec.sheet);
-    ensureSchema_(sh,type);
-  });
+  // 為本年度建立六張表，既有舊表保留，且可跨年查詢與結算。
+  Object.keys(TYPES).forEach(type=>reportSheet_(type));
 }
 
 /**
@@ -318,25 +314,43 @@ function findIndex_(id){
   const row=finder.getRow();
   return {sheet:sh,row,values:sh.getRange(row,1,1,INDEX_HEADERS.length).getValues()[0]};
 }
-function reportSheet_(type){
-  const spec=TYPES[type];if(!spec)throw new Error('不支援的回報類別');
-  const ss=sheet_();let sh=ss.getSheetByName(spec.sheet);
-  if(!sh)sh=ss.insertSheet(spec.sheet);
+// 六種原始回報以送出當下的台灣年度分頁；舊式無年度原表仍可供查詢與結算。
+function reportYear_(date){return Utilities.formatDate(date||new Date(),'Asia/Taipei','yyyy');}
+function yearlyReportName_(type,year){
+  if(!TYPES[type]||!/^20\d{2}$/.test(String(year)))throw new Error('回報年度不正確');
+  return TYPES[type].sheet+'_'+year;
+}
+function reportSheets_(type){
+  if(!TYPES[type])throw new Error('不支援的回報類別');
+  const base=TYPES[type].sheet,expr=new RegExp('^'+base+'_20[0-9]{2}$');
+  return sheet_().getSheets().filter(sh=>sh.getName()===base||expr.test(sh.getName()));
+}
+function reportSheet_(type,year){
+  const ss=sheet_(),name=yearlyReportName_(type,year||reportYear_());
+  let sh=ss.getSheetByName(name);
+  if(!sh)sh=ss.insertSheet(name);
   ensureSchema_(sh,type);return sh;
 }
 function findReport_(type,id){
-  const sh=reportSheet_(type),last=sh.getLastRow();
-  if(last<2)return null;
-  const found=sh.getRange(2,1,last-1,1).createTextFinder(String(id)).matchEntireCell(true).findNext();
-  if(!found)return null;
-  const row=found.getRow(),names=headersFor_(type);
-  const vals=sh.getRange(row,1,1,names.length).getValues()[0];
-  const values={};
-  TYPES[type].fields.forEach((key,i)=>{
-    const raw=vals[i+3];
-    values[key]=raw instanceof Date?Utilities.formatDate(raw,'Asia/Taipei','yyyy-MM-dd'):String(raw===null||raw===undefined?'':raw);
+  let answer=null;
+  reportSheets_(type).forEach(sh=>{
+    if(sh.getLastRow()<2)return;
+    ensureSchema_(sh,type);
+    const found=sh.getRange(2,1,sh.getLastRow()-1,1)
+      .createTextFinder(String(id)).matchEntireCell(true).findNext();
+    if(!found)return;
+    if(answer)throw new Error('回報編號出現在多個年度工作表，請管理員核對：'+id);
+    const row=found.getRow(),names=headersFor_(type);
+    const vals=sh.getRange(row,1,1,names.length).getValues()[0],values={};
+    TYPES[type].fields.forEach((key,i)=>{
+      const raw=vals[i+3];
+      values[key]=raw instanceof Date?Utilities.formatDate(raw,'Asia/Taipei','yyyy-MM-dd'):
+        String(raw===null||raw===undefined?'':raw);
+    });
+    answer={sheet:sh,row,values,
+      photos:TYPES[type].photo?String(vals[vals.length-1]||'').split('\n').filter(Boolean):[]};
   });
-  return {sheet:sh,row,values,photos:TYPES[type].photo?String(vals[vals.length-1]||'').split('\n').filter(Boolean):[]};
+  return answer;
 }
 function checkAccess_(p){
   requireSecuritySetup_();
@@ -513,7 +527,7 @@ function adminLookupReport(reportId){
   const matches=types.map(type=>({type,report:findReport_(type,id)})).filter(x=>x.report);
   if(matches.length!==1)throw new Error('找不到唯一的原始回報；請先核對各類工作表');
   const item=matches[0],info={
-    id:id,type:item.type,sheet:TYPES[item.type].sheet,
+    id:id,type:item.type,sheet:item.report.sheet.getName(),
     status:index?String(index.values[4]):'舊版尚未建立查詢憑證',
     hasLookupCredentials:!!index,
     version:index?Number(index.values[5]):null,
@@ -644,7 +658,7 @@ function adminReviewDetails_(requestId){
   }else throw new Error('未知申請類型');
   return {
     requestId:id,reportId:String(vals[1]),
-    type:String(vals[2]),sheet:TYPES[type].sheet,
+    type:String(vals[2]),sheet:current.sheet.getName(),
     reason:String(vals[6]),version:Number(vals[3]),
     changes:changes,stale:stale,
     currentSummary:TYPES[type].fields
@@ -1145,7 +1159,7 @@ function regionalReportSource_(id,idx){
   const matches=[];
   types.forEach(type=>{
     // 不建立不存在的原始分頁；只讀取有紀錄的工作表。
-    if(!sheet_().getSheetByName(TYPES[type].sheet))return;
+    if(!reportSheets_(type).length)return;
     const report=findReport_(type,id);
     if(report)matches.push({type,report});
   });
