@@ -1714,8 +1714,8 @@ function awardRules_(ss){
   const sh=awardProtectedSheet_(ss,'獎項設定',AWARD_RULE_HEADERS);
   // Only a new sheet is initialized from the uploaded official PDF; an existing sheet
   // (including intentionally empty or custom rules) is never overwritten.
-  const rows=!sh||sh.getLastRow()===0?AWARD_OFFICIAL_RULES:
-    sh.getLastRow()<2?[]:sh.getRange(2,1,sh.getLastRow()-1,AWARD_RULE_HEADERS.length).getValues();
+  const rows=!sh||sh.getLastRow()<2?AWARD_OFFICIAL_RULES:
+    sh.getRange(2,1,sh.getLastRow()-1,AWARD_RULE_HEADERS.length).getValues();
   const used={};
   return rows.filter(row=>String(row[0]||'').trim()).map(row=>{
     const [rawCode,rawName,rawKind,rawMetric,rawMin,rawActive]=row;
@@ -1820,8 +1820,9 @@ function awardEnsureProtected_(ss,title,headers,existing){
 }
 function awardWrite_(ss,prepared){
   // Preserve user-maintained rules; populate official PDF defaults only upon first creation.
+  const shouldSeed=!prepared.ruleSheet||prepared.ruleSheet.getLastRow()<2;
   const rules=awardEnsureProtected_(ss,'獎項設定',AWARD_RULE_HEADERS,prepared.ruleSheet);
-  if(!prepared.ruleSheet||prepared.ruleSheet.getLastRow()===0)
+  if(shouldSeed)
     rules.getRange(2,1,AWARD_OFFICIAL_RULES.length,AWARD_RULE_HEADERS.length)
       .setValues(AWARD_OFFICIAL_RULES);
   awardEnsureProtected_(ss,'領獎紀錄',AWARD_CLAIM_HEADERS,prepared.claimSheet);
