@@ -175,10 +175,10 @@ const TYPES = {
   personalClass:['country','unit','district','classType','mentor','student','eventDate','session','files'],
   publicClass:['country','unit','district','reporterName','temple','classType','count','files'],
   temple:['country','unit','district','mentor','host','eventDate','files'],
-  cleanTemple:['country','unit','district','reporterName','temple','lunarMonth','lunarDay','eventDate','files']
+  cleanTemple:['country','unit','district','reporterName','temple','lunarMonth','eventDate','files']
 };
 const TYPE_LABELS={personal:{eventDate:'辦道日期',count:'此次渡眾人數',files:'上傳求道卡照片'},family:{temple:'佛堂堂號',eventDate:'辦道日期',count:'渡眾人數',files:'上傳辦道簿照片（選填）'},public:{temple:'公堂堂號',eventDate:'辦道日期',count:'渡眾人數',files:'上傳辦道簿照片（選填）'},personalClass:{eventDate:'上課日期',files:'上傳上課出席表'},publicClass:{temple:'公堂堂號',count:'堂數達標之班員人數',files:'上傳上課出席表'},temple:{eventDate:'正式安堂日期',files:'上傳安堂當天照片（佛堂須入鏡）'},cleanTemple:{temple:'佛堂堂號',lunarMonth:'農曆年月',lunarDay:'農曆回報日',eventDate:'實際整理日期',files:'上傳整理後佛堂周圍的照片'}};
-const TYPE_HELP={personal:'每次個人渡眾回報都需要附上求道卡照片。',family:'獲獎結算時，需提供辦道簿供核實；可先選擇上傳照片。',public:'公堂渡眾需填寫姓名與區域；辦道簿可先上傳，結算時仍須核實。',personalClass:'請依班期選擇第 1～24 次上課，並附上上課出席表。',publicClass:'請填寫達標班員人數，並上傳進階班出席表。',temple:'必須已正式完成安堂，並上傳佛堂入鏡的當天照片。',cleanTemple:'依獎勵辦法，每月農曆初一、十五各回報一次。請確認佛堂周圍整理乾淨、沒有雜物堆積，上傳整潔照片。農曆月份及初一／十五由填報者核對，不會由系統推算。'};
+const TYPE_HELP={personal:'每次個人渡眾回報都需要附上求道卡照片。',family:'獲獎結算時，需提供辦道簿供核實；可先選擇上傳照片。',public:'公堂渡眾需填寫姓名與區域；辦道簿可先上傳，結算時仍須核實。',personalClass:'請依班期選擇第 1～24 次上課，並附上上課出席表。',publicClass:'請填寫達標班員人數，並上傳進階班出席表。',temple:'必須已正式完成安堂，並上傳佛堂入鏡的當天照片。',cleanTemple:'同一佛堂在同一農曆月份回報兩次即可，不限定初一或十五。兩筆須有不同的實際整理日期，並上傳整理照片。'};
 const LABEL = {country:'國家',unit:'單位',district:'區域',reporterName:'回報人姓名',guide:'引師姓名',
   temple:'佛堂／公堂堂號',host:'壇主姓名',mentor:'成全者姓名',student:'班員姓名',
   eventDate:'辦道／上課／正式安堂日期',count:'渡眾／達標人數',classType:'進階班類別',
@@ -241,7 +241,7 @@ function field(key) {
   input.id=key;input.name=key;input.required=!(key==='files'&&['family','public'].includes(typeField.value));outer.append(input);
   if(key==='lunarMonth'){
     const hint=document.createElement('p');hint.className='hint';
-    hint.textContent='請填實際農曆年份與月份；閏月填「閏」。請自行確認農曆日與整理日期相符。';outer.append(hint);
+    hint.textContent='請填實際農曆年份與月份；閏月填「閏」。不必選初一或十五，同一月須有兩次不同日期的回報。';outer.append(hint);
   }
   if(key==='files') {
     const hint=document.createElement('div');hint.className='hint';
@@ -507,6 +507,7 @@ el('reviewSend').addEventListener('click',async()=>{
   status.className='status';status.textContent='正在上傳，請勿關閉頁面…';
   try{
     const payload={type:snapshot.type,...snapshot.values,files:[]};
+    if(snapshot.type==='cleanTemple')payload.lunarDay='不限日期'; // Preserve the historical original-sheet schema.
     for(const file of snapshot.files){
       payload.files.push({mimeType:file.type,data:await base64(file)});
     }
@@ -606,7 +607,7 @@ function createEditField(key,value){
     if(key==='district')options.filter(x=>x.country===foundReport.fields.country&&x.unit===foundReport.fields.unit).forEach(x=>set.add(x.district));
     if(key==='classType')['禮行','義理','仁德'].forEach(x=>set.add(x));
     if(key==='session')for(let i=1;i<=24;i++)set.add(String(i));
-    if(key==='lunarDay')['初一','十五'].forEach(x=>set.add(x));
+    if(key==='lunarDay')['初一','十五','不限日期'].forEach(x=>set.add(x));
     set.add(String(value));
     [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh-Hant')).forEach(x=>input.add(new Option(x,x)));
   }else{
@@ -846,7 +847,7 @@ function regionalEditField_(key,value){
   let node;
   if(key==='classType'||key==='session'||key==='lunarDay'){
     node=document.createElement('select');
-    (key==='classType'?['禮行','義理','仁德']:key==='lunarDay'?['初一','十五']:Array.from({length:24},(_,i)=>String(i+1)))
+    (key==='classType'?['禮行','義理','仁德']:key==='lunarDay'?['初一','十五','不限日期']:Array.from({length:24},(_,i)=>String(i+1)))
       .forEach(v=>node.add(new Option(v,v)));
   }else{
     node=document.createElement('input');
