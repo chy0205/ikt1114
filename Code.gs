@@ -583,7 +583,7 @@ function onOpen(e){
     .addItem('審核修改／取消申請…','adminReviewPending')
     .addItem('成績、索引與照片健檢…','adminIntegrityCheckPrompt')
     .addItem('重新結算個人與區域成績…','adminRecalculateScoresPrompt')
-    .addItem('立即結算領獎名單…','adminSettleAwardsPrompt')
+    .addItem('領獎結算面板（按鈕）…','adminOpenAwardSettlementPanel')
     .addItem('登記已領獎（不可重領）…','adminRegisterAwardClaimPrompt')
     .addItem('重建領獎累計（修復用）…','adminRebuildAwardTotalsPrompt')
     .addItem('啟用每5分鐘自動結算…','adminInstallAutoSettlementPrompt')
@@ -1867,6 +1867,30 @@ function settleAwardsNow(){
     return {ok:true,initial,newReports:delta.processed,
       approvedChanges:delta.corrected,recipients:delta.rows.length,awards:prepared.rows.length,stamp};
   }finally{lock.releaseLock();}
+}
+// The actual one-click button is shown only to authorized spreadsheet admins.
+function adminOpenAwardSettlementPanel(){
+  requireAdmin_();
+  const html=[
+    '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">',
+    '<style>body{font:15px system-ui,"Noto Sans TC",sans-serif;color:#203c31;padding:17px;line-height:1.7}',
+    'button{padding:13px 22px;background:#225640;color:white;border:0;border-radius:9px;font-weight:bold;cursor:pointer;width:100%}',
+    'button:disabled{opacity:.55;cursor:wait}p{font-size:14px}#result{white-space:pre-wrap;margin-top:16px;font-size:14px}</style>',
+    '</head><body><h3>手動領獎結算</h3>',
+    '<p>第一次建立所有歷史回報的累計基準。之後只加入新回報、扣除或補上已核准修改與取消的差額。個人以「區域＋姓名」辨識，不分年度。</p>',
+    '<p><b>這個按鈕只計算領獎名單，不表示已發獎。</b> 領取後仍須由管理員另行登記。</p>',
+    '<button id="run" type="button">立即結算到現在</button><div id="result" role="status" aria-live="polite"></div>',
+    '<script>',
+    'document.getElementById("run").onclick=function(){',
+    'var button=this,out=document.getElementById("result");button.disabled=true;out.textContent="正在結算，請勿重複點擊…";',
+    'google.script.run.withSuccessHandler(function(r){',
+    'out.textContent=(r.initial?"首次建立累計基準":"已完成增量結算")+"\\n新增回報："+r.newReports+" 筆\\n核准異動："+r.approvedChanges+" 筆\\n領獎列數："+r.awards+" 筆\\n結算時間："+r.stamp;',
+    'button.disabled=false;',
+    '}).withFailureHandler(function(e){out.textContent="結算失敗："+(e.message||e)+"\\n請確認錯誤後必要時重建領獎累計。";button.disabled=false;}).settleAwardsNow();',
+    '};',
+    '</script></body></html>'
+  ].join('');
+  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(460).setHeight(340),'領獎結算');
 }
 function adminSettleAwardsPrompt(){
   requireAdmin_();
