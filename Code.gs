@@ -1758,6 +1758,12 @@ function awardCandidates_(data,rules,claims){
       groups[key].scores[metric]=(groups[key].scores[metric]||0)+Number(row[AWARD_PERSON_METRICS[metric]]||0);
     });
   });
+  (data.personalClassQualified||[]).forEach(row=>{
+    const key=awardKey_('個人',row.mentor,'',row.area);
+    if(!groups[key])groups[key]={kind:'個人',name:row.mentor,area:row.area,scores:{}};
+    AWARD_QUALIFIED_METRICS.forEach(metric=>
+      groups[key].scores[metric]=(groups[key].scores[metric]||0)+Number(row[metric]||0));
+  });
   data.halls.forEach(row=>{
     const name=String(row[0]||'').trim();if(!name)return;
     const key=awardKey_('公堂',name,'','');
@@ -1865,6 +1871,53 @@ const AWARD_TOTAL_HEADERS=['對象','區域','姓名／堂號','個人渡眾','�
   '禮行','義理','仁德','成全安堂回報','公堂渡眾',
   '公堂禮行','公堂義理','公堂仁德'];
 const AWARD_CURSOR_HEADERS=['來源類別','已結算至來源列','結算時間'];
+const AWARD_CLASS_HEADERS=['回報編號','區域','成全者','班員','班別','堂次'];
+// One index row per currently valid personal-class report. This lets later manual
+// settlements process only new / approved-changed UUIDs without re-reading old raw tabs.
+function awardClassRead_(ss){
+  const sh=awardProtectedSheet_(ss,'領獎個人班出席索引',AWARD_CLASS_HEADERS),rows={};
+  if(sh&&sh.getLastRow()>1)
+    sh.getRange(2,1,sh.getLastRow()-1,AWARD_CLASS_HEADERS.length).getValues().forEach(row=>{
+      const id=String(row[0]||'').trim();if(!id)return;
+      if(rows[id])throw new Error('進階班出席索引重複回報編號：'+id);
+      rows[id]=row.slice();
+    });
+  return {sheet:sh,rows};
+}
+function awardClassSet_(id,obj,classes){
+  const level=String(obj.classType||'').trim(),session=Number(obj.session);
+  if(!['禮行','義理','仁德'].includes(level)||!Number.isInteger(session)||session<1||session>24)
+    throw new Error('個人進階班的班別或堂次不正確：'+id);
+  const area=String(obj.district||'').trim(),mentor=String(obj.mentor||'').trim(),
+    student=String(obj.student||'').trim();
+  if(!area||!mentor||!student)throw new Error('個人進階班缺少區域／成全者／班員：'+id);
+  classes[id]=[id,area,mentor,student,level,session];
+}
+function awardClassQualified_(classes){
+  const studentSessions={};
+  Object.values(classes).forEach(row=>{
+    const id=JSON.stringify([String(row[1]),String(row[2]),String(row[3]),String(row[4])]);
+    if(!studentSessions[id])studentSessions[id]={area:String(row[1]),mentor:String(row[2]),level:String(row[4]),sessions:{}};
+    studentSessions[id].sessions[String(row[5])]=true;
+  });
+  const result={};
+  const mins={'禮行':6,'義理':8,'仁德':10};
+  Object.values(studentSessions).forEach(obj=>{
+    if(Object.keys(obj.sessions).length<mins[obj.level])return;
+    const key=awardKey_('個人',obj.mentor,'',obj.area);
+    if(!result[key])result[key]={area:obj.area,mentor:obj.mentor,'禮行達標班員':0,'義理達標班員':0,'仁德達標班員':0};
+    result[key][obj.level+'達標班員']++;
+  });
+  return Object.values(result);
+}
+function awardDataFor_(rows,stamp,classes){
+  return {personal:rows.filter(r=>r[0]==='個人')
+      .map(r=>[r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]]),
+    halls:rows.filter(r=>r[0]==='公堂')
+      .map(r=>[r[2],r[9],r[10],r[11],r[12]]),
+    personalClassQualified:awardClassQualified_(classes||{}),stamp};
+}
+
 const AWARD_EVENT_HEADERS=['異動時間','回報編號','回報類別','異動類型','異動前JSON','異動後JSON'];
 function awardSourceObject_(type,row){
   const obj={};
@@ -1909,15 +1962,11 @@ function awardTotalsRead_(ss){
 function awardDataFromTotals_(ss){
   const cursor=awardProtectedSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS);
   if(!cursor||cursor.getLastRow()<2)
-    throw new Error('尚未按「立即結算領獎名單」建立累計基準');
-  const obj=awardTotalsRead_(ss).totals;
-  const rows=Object.values(obj);
-  return {personal:rows.filter(r=>r[0]==='個人')
-      .map(r=>[r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]]),
-    halls:rows.filter(r=>r[0]==='公堂')
-      .map(r=>[r[2],r[9],r[10],r[11],r[12]]),
-    // Keep the last manual-settlement timestamp even when a prize is registered later.
-    stamp:String(cursor.getRange(2,3,1,1).getDisplayValues()[0][0]||'')};
+    throw new Error('尚未按「立即結算到現在」建立領獎累計基準');
+  const rows=Object.values(awardTotalsRead_(ss).totals);
+  const classes=awardClassRead_(ss).rows;
+  return awardDataFor_(rows,
+    String(cursor.getRange(2,3,1,1).getDisplayValues()[0][0]||''),classes);
 }
 function awardEventSheet_(ss){
   return awardProtectedSheet_(ss,'領獎異動紀錄',AWARD_EVENT_HEADERS);
