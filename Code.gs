@@ -1976,7 +1976,7 @@ function awardApprovedChange_(id,type,action,before,after){
   if(sh.getLastRow()===0)sh.getRange(1,1,1,AWARD_EVENT_HEADERS.length).setValues([AWARD_EVENT_HEADERS]);
   sh.appendRow([new Date(),id,type,action,JSON.stringify(before),JSON.stringify(after)]);
 }
-function awardIncrementRows_(ss,cursors,initial,totals){
+function awardIncrementRows_(ss,cursors,initial,totals,classes){
   const sources=Object.keys(TYPES),newIds=new Set(),next={};
   let processed=0;
   // Only the first click scans the historical index for canceled reports.
@@ -2009,7 +2009,11 @@ function awardIncrementRows_(ss,cursors,initial,totals){
           const indexed=findIndex_(id);
           return indexed?String(indexed.values[4]):'已回報';
         })();
-        if(status!=='已取消')awardEffect_(type,awardSourceObject_(type,row),1,totals);
+        if(status!=='已取消'){
+          const obj=awardSourceObject_(type,row);
+          awardEffect_(type,obj,1,totals);
+          if(type==='personalClass')awardClassSet_(id,obj,classes);
+        }
         processed++;
       });
     }
@@ -2036,6 +2040,10 @@ function awardIncrementRows_(ss,cursors,initial,totals){
         const after=JSON.parse(String(row[5]||'{}'));
         awardEffect_(type,before,-1,totals);
         if(action==='modify')awardEffect_(type,after,1,totals);
+        if(type==='personalClass'){
+          delete classes[id];
+          if(action==='modify')awardClassSet_(id,after,classes);
+        }
         corrected++;
       });
   }
@@ -2064,16 +2072,17 @@ function settleAwardsNow(){
     if(initial&&current.sheet&&current.sheet.getLastRow()>1)
       throw new Error('存在舊領獎累計但沒有游標，請使用修復功能重建');
     const totals=initial?{}:current.totals;
-    const delta=awardIncrementRows_(ss,cursors,initial,totals);
+    const classState=awardClassRead_(ss);
+    if(!initial&&!classState.sheet)throw new Error('進階班出席索引遺失，請執行重建領獎累計');
+    const classes=initial?{}:classState.rows;
+    const delta=awardIncrementRows_(ss,cursors,initial,totals,classes);
     const stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss');
-    const awardData={personal:delta.rows.filter(r=>r[0]==='個人')
-      .map(r=>[r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]]),
-      halls:delta.rows.filter(r=>r[0]==='公堂')
-      .map(r=>[r[2],r[9],r[10],r[11],r[12]]),stamp};
+    const awardData=awardDataFor_(delta.rows,stamp,classes);
     const prepared=awardPrepare_(ss,awardData);
     const totalSchema=settlementSchema_(ss,'領獎累計',AWARD_TOTAL_HEADERS);
-    // No automatic year split, and no new prize rules are invented.
+    const classSchema=settlementSchema_(ss,'領獎個人班出席索引',AWARD_CLASS_HEADERS);
     settlementSheet_(ss,'領獎累計',AWARD_TOTAL_HEADERS,delta.rows,totalSchema);
+    settlementSheet_(ss,'領獎個人班出席索引',AWARD_CLASS_HEADERS,Object.values(classes),classSchema);
     awardWrite_(ss,prepared);
     const cursorRows=Object.keys(delta.next).map(k=>[k,delta.next[k],stamp]);
     settlementSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS,cursorRows,
@@ -2131,13 +2140,14 @@ function adminRebuildAwardTotalsPrompt(){
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   try{
     const ss=sheet_(),cursor=awardProtectedSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS);
-    const totals={},delta=awardIncrementRows_(ss,{},true,totals),stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss');
-    const data={personal:delta.rows.filter(r=>r[0]==='個人')
-      .map(r=>[r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]]),
-      halls:delta.rows.filter(r=>r[0]==='公堂').map(r=>[r[2],r[9],r[10],r[11],r[12]]),stamp};
+    const totals={},classes={},delta=awardIncrementRows_(ss,{},true,totals,classes),
+      stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss');
+    const data=awardDataFor_(delta.rows,stamp,classes);
     const prepared=awardPrepare_(ss,data);
     const total=settlementSchema_(ss,'領獎累計',AWARD_TOTAL_HEADERS);
     settlementSheet_(ss,'領獎累計',AWARD_TOTAL_HEADERS,delta.rows,total);
+    settlementSheet_(ss,'領獎個人班出席索引',AWARD_CLASS_HEADERS,Object.values(classes),
+      settlementSchema_(ss,'領獎個人班出席索引',AWARD_CLASS_HEADERS));
     awardWrite_(ss,prepared);
     settlementSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS,
       Object.keys(delta.next).map(k=>[k,delta.next[k],stamp]),{sheet:cursor,upgrade:false});
