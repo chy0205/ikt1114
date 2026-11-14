@@ -46,7 +46,7 @@ textarea{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px sol
 <button type="button" class="tab-button" id="tabReport" role="tab" aria-selected="true" aria-controls="reportPanel">新增成績回報</button>
 <button type="button" class="tab-button" id="tabLookup" role="tab" aria-selected="false" aria-controls="lookupPanel">查詢／申請修改</button>
 <button type="button" class="tab-button" id="tabRegional" role="tab" aria-selected="false" aria-controls="regionalPanel">區域負責人查詢</button>
-</div><div id="reportPanel" role="tabpanel"><div class="notice"><strong>連續回報同一區域</strong>只要選好一次回報類別、國家、單位及區域；每筆成功送出後，保留這些選擇，只清空該筆明細與照片，直接填下一筆。每筆均獨立回報，請保存每筆憑證。</div><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option></select></div><div id="dynamic"></div><p id="ipCountryHint" class="hint" aria-live="polite">國家可手動選擇。網站會嘗試透過網路 IP 預選國家，不會使用 GPS；IP 會提供給第三方定位服務。</p><button id="submit" type="submit">填寫完成，檢查回報資料</button>
+</div><div id="reportPanel" role="tabpanel"><div class="notice"><strong>連續回報同一區域</strong>只要選好一次回報類別、國家、單位及區域；每筆成功送出後，保留這些選擇，只清空該筆明細與照片，直接填下一筆。每筆均獨立回報，請保存每筆憑證。</div><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option><option value="cleanTemple">莊嚴淨土（佛堂整潔）回報</option></select></div><div id="dynamic"></div><p id="ipCountryHint" class="hint" aria-live="polite">國家可手動選擇。網站會嘗試透過網路 IP 預選國家，不會使用 GPS；IP 會提供給第三方定位服務。</p><button id="submit" type="submit">填寫完成，檢查回報資料</button>
 <div id="reportReview" class="lookup-card hidden" aria-live="polite">
   <h3 style="margin:0 0 8px">第二次確認：請逐項檢查</h3>
   <p class="muted-note">下方內容尚未送出。請確認姓名、區域、班別、人數、日期及照片都正確；有錯誤請按「返回修改」。</p>
@@ -174,14 +174,15 @@ const TYPES = {
   public:['country','unit','district','reporterName','temple','eventDate','count','files'],
   personalClass:['country','unit','district','classType','mentor','student','eventDate','session','files'],
   publicClass:['country','unit','district','reporterName','temple','classType','count','files'],
-  temple:['country','unit','district','mentor','host','eventDate','files']
+  temple:['country','unit','district','mentor','host','eventDate','files'],
+  cleanTemple:['country','unit','district','reporterName','temple','lunarMonth','lunarDay','eventDate','files']
 };
-const TYPE_LABELS={personal:{eventDate:'辦道日期',count:'此次渡眾人數',files:'上傳求道卡照片'},family:{temple:'佛堂堂號',eventDate:'辦道日期',count:'渡眾人數',files:'上傳辦道簿照片（選填）'},public:{temple:'公堂堂號',eventDate:'辦道日期',count:'渡眾人數',files:'上傳辦道簿照片（選填）'},personalClass:{eventDate:'上課日期',files:'上傳上課出席表'},publicClass:{temple:'公堂堂號',count:'堂數達標之班員人數',files:'上傳上課出席表'},temple:{eventDate:'正式安堂日期',files:'上傳安堂當天照片（佛堂須入鏡）'}};
-const TYPE_HELP={personal:'每次個人渡眾回報都需要附上求道卡照片。',family:'獲獎結算時，需提供辦道簿供核實；可先選擇上傳照片。',public:'公堂渡眾需填寫姓名與區域；辦道簿可先上傳，結算時仍須核實。',personalClass:'請依班期選擇第 1～24 次上課，並附上上課出席表。',publicClass:'請填寫達標班員人數，並上傳進階班出席表。',temple:'必須已正式完成安堂，並上傳佛堂入鏡的當天照片。'};
+const TYPE_LABELS={personal:{eventDate:'辦道日期',count:'此次渡眾人數',files:'上傳求道卡照片'},family:{temple:'佛堂堂號',eventDate:'辦道日期',count:'渡眾人數',files:'上傳辦道簿照片（選填）'},public:{temple:'公堂堂號',eventDate:'辦道日期',count:'渡眾人數',files:'上傳辦道簿照片（選填）'},personalClass:{eventDate:'上課日期',files:'上傳上課出席表'},publicClass:{temple:'公堂堂號',count:'堂數達標之班員人數',files:'上傳上課出席表'},temple:{eventDate:'正式安堂日期',files:'上傳安堂當天照片（佛堂須入鏡）'},cleanTemple:{temple:'佛堂堂號',lunarMonth:'農曆年月',lunarDay:'農曆回報日',eventDate:'實際整理日期',files:'上傳整理後佛堂周圍的照片'}};
+const TYPE_HELP={personal:'每次個人渡眾回報都需要附上求道卡照片。',family:'獲獎結算時，需提供辦道簿供核實；可先選擇上傳照片。',public:'公堂渡眾需填寫姓名與區域；辦道簿可先上傳，結算時仍須核實。',personalClass:'請依班期選擇第 1～24 次上課，並附上上課出席表。',publicClass:'請填寫達標班員人數，並上傳進階班出席表。',temple:'必須已正式完成安堂，並上傳佛堂入鏡的當天照片。',cleanTemple:'依獎勵辦法，每月農曆初一、十五各回報一次。請確認佛堂周圍整理乾淨、沒有雜物堆積，上傳整潔照片。農曆月份及初一／十五由填報者核對，不會由系統推算。'};
 const LABEL = {country:'國家',unit:'單位',district:'區域',reporterName:'回報人姓名',guide:'引師姓名',
   temple:'佛堂／公堂堂號',host:'壇主姓名',mentor:'成全者姓名',student:'班員姓名',
   eventDate:'辦道／上課／正式安堂日期',count:'渡眾／達標人數',classType:'進階班類別',
-  session:'第幾次上課',files:'上傳照片（最多5張，每張5MB）'};
+  session:'第幾次上課',lunarMonth:'農曆年月（例如2027-01、2027-閏06）',lunarDay:'農曆回報日',files:'上傳照片（最多5張，每張5MB）'};
 let options = [];
 let optionsReady = false;
 // IP 定位只供預選，永遠不能覆蓋使用者手動選定的國家。
@@ -217,14 +218,16 @@ function field(key) {
   const outer=document.createElement('div');outer.className='field';outer.id='wrap-'+key;
   const label=document.createElement('label');label.htmlFor=key;label.textContent=displayLabel(key)+(key==='files'&&['family','public'].includes(typeField.value)?'':' *');outer.append(label);
   let input;
-  if(['country','unit','district','classType','session'].includes(key)) {
+  if(['country','unit','district','classType','session','lunarDay'].includes(key)) {
     input=document.createElement('select');input.add(new Option('請選擇'+displayLabel(key),''));
     if(key==='classType')['禮行','義理','仁德'].forEach(x=>input.add(new Option(x,x)));
     if(key==='session')for(let i=1;i<=24;i++)input.add(new Option('第'+i+'次',i));
+    if(key==='lunarDay')for(const phase of ['初一','十五'])input.add(new Option(phase,phase));
   } else {
     input=document.createElement('input');input.type=key==='eventDate'?'date':key==='count'?'number':key==='files'?'file':'text';
     if(key==='count'){input.min='0';input.step='1';input.inputMode='numeric';}
-    if(['guide','reporterName','host','mentor','student','temple'].includes(key)){input.maxLength=120;input.autocomplete='off';}
+    if(['guide','reporterName','host','mentor','student','temple','lunarMonth'].includes(key)){input.maxLength=120;input.autocomplete='off';}
+    if(key==='lunarMonth'){input.maxLength=10;input.placeholder='2027-01 或 2027-閏06';input.pattern='20[0-9]{2}-(?:閏)?(?:0[1-9]|1[0-2])';input.title='請填農曆年份及月份，例如 2027-01 或 2027-閏06';}
     if(key==='files'){input.accept='image/jpeg,image/png,image/webp,image/heic,image/heif';input.multiple=true;}
   }
   if(key==='eventDate'){
@@ -236,6 +239,10 @@ function field(key) {
     input.addEventListener('change',()=>validateFourDigitDate(input));
   }
   input.id=key;input.name=key;input.required=!(key==='files'&&['family','public'].includes(typeField.value));outer.append(input);
+  if(key==='lunarMonth'){
+    const hint=document.createElement('p');hint.className='hint';
+    hint.textContent='請填實際農曆年份與月份；閏月填「閏」。請自行確認農曆日與整理日期相符。';outer.append(hint);
+  }
   if(key==='files') {
     const hint=document.createElement('div');hint.className='hint';
     hint.textContent='最多 5 張，每張不超過 5MB；請確認照片清晰並避免拍到無關資料。';outer.append(hint);
@@ -529,7 +536,7 @@ if(!API_URL.startsWith('https://')){el('status').className='status error';el('st
 else loadOptions();
 updateProgress();
 
-const LOOKUP_KEYS={country:'國家',unit:'單位',district:'區域',guide:'引師姓名',reporterName:'回報人姓名',temple:'佛堂／公堂堂號',host:'壇主姓名',mentor:'成全者姓名',student:'班員姓名',classType:'進階班類別',eventDate:'日期',count:'人數',session:'上課次數'};
+const LOOKUP_KEYS={country:'國家',unit:'單位',district:'區域',guide:'引師姓名',reporterName:'回報人姓名',temple:'佛堂／公堂堂號',host:'壇主姓名',mentor:'成全者姓名',student:'班員姓名',classType:'進階班類別',eventDate:'日期',count:'人數',session:'上課次數',lunarMonth:'農曆年月',lunarDay:'農曆回報日'};
 let foundReport=null,changeMode='modify';
 function switchPanel(target){
   const look=target==='lookup',regional=target==='regional';
@@ -592,18 +599,20 @@ function createEditField(key,value){
   const outer=document.createElement('div');outer.className='field';
   const label=document.createElement('label');label.htmlFor='edit-'+key;label.textContent=LOOKUP_KEYS[key]||key;outer.append(label);
   let input;
-  if(['country','unit','district','classType','session'].includes(key)){
+  if(['country','unit','district','classType','session','lunarDay'].includes(key)){
     input=document.createElement('select');const set=new Set();
     if(key==='country')options.forEach(x=>set.add(x.country));
     if(key==='unit')options.filter(x=>x.country===(foundReport.fields.country)).forEach(x=>set.add(x.unit));
     if(key==='district')options.filter(x=>x.country===foundReport.fields.country&&x.unit===foundReport.fields.unit).forEach(x=>set.add(x.district));
     if(key==='classType')['禮行','義理','仁德'].forEach(x=>set.add(x));
     if(key==='session')for(let i=1;i<=24;i++)set.add(String(i));
+    if(key==='lunarDay')['初一','十五'].forEach(x=>set.add(x));
     set.add(String(value));
     [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b,'zh-Hant')).forEach(x=>input.add(new Option(x,x)));
   }else{
     input=document.createElement('input');
     input.type=key==='eventDate'?'date':key==='count'?'number':'text';
+    if(key==='lunarMonth'){input.maxLength=10;input.pattern='20[0-9]{2}-(?:閏)?(?:0[1-9]|1[0-2])';}
     if(key==='count'){input.min='0';input.step='1';}
     if(key==='eventDate'){input.min='1000-01-01';input.max='9999-12-31';}
     input.value=String(value||'');
@@ -835,15 +844,16 @@ function regionalEditField_(key,value){
   const outer=document.createElement('div');outer.className='field';
   const label=document.createElement('label');label.textContent=LOOKUP_KEYS[key]||LABEL[key]||key;outer.append(label);
   let node;
-  if(key==='classType'||key==='session'){
+  if(key==='classType'||key==='session'||key==='lunarDay'){
     node=document.createElement('select');
-    (key==='classType'?['禮行','義理','仁德']:Array.from({length:24},(_,i)=>String(i+1)))
+    (key==='classType'?['禮行','義理','仁德']:key==='lunarDay'?['初一','十五']:Array.from({length:24},(_,i)=>String(i+1)))
       .forEach(v=>node.add(new Option(v,v)));
   }else{
     node=document.createElement('input');
     node.type=key==='eventDate'?'date':key==='count'?'number':'text';
     if(key==='count'){node.min='0';node.step='1';}
     if(key==='eventDate'){node.min='1000-01-01';node.max='9999-12-31';}
+    if(key==='lunarMonth'){node.maxLength=10;node.pattern='20[0-9]{2}-(?:閏)?(?:0[1-9]|1[0-2])';}
     node.maxLength=120;
   }
   node.id='region-edit-'+key;node.value=String(value??'');node.required=true;outer.append(node);return outer;
@@ -892,7 +902,7 @@ el('regionalCancelOpen').addEventListener('click',async()=>{
     regionalCancelReport=report;
     el('regionalCancelInfo').textContent='請核對要取消的回報，確認後再填寫原因：';
     const box=el('regionalCancelSummary');box.replaceChildren();
-    const labels=[['回報編號',report.id],['回報類別',({personal:'個人渡眾',family:'家堂渡眾',public:'公堂渡眾',personalClass:'個人成全進階班',publicClass:'公堂進階班',temple:'成全安堂完成'})[report.type]||report.type],
+    const labels=[['回報編號',report.id],['回報類別',({personal:'個人渡眾',family:'家堂渡眾',public:'公堂渡眾',personalClass:'個人成全進階班',publicClass:'公堂進階班',temple:'成全安堂完成',cleanTemple:'莊嚴淨土'})[report.type]||report.type],
       ['國家',report.fields.country],['單位',report.fields.unit],
       ['區域',report.fields.district]];
     TYPES[report.type].filter(key=>!['files','country','unit','district'].includes(key))
