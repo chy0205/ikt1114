@@ -170,7 +170,9 @@ function validate_(p) {
     if (!f.data || f.data.length > Math.ceil(CONFIG.MAX_FILE_BYTES * 4 / 3) + 100) throw new Error('照片過大或內容無效');
   });
   const opts = getOptions_().options;
-  if (!opts.some(o => o.country === p.country && o.unit === p.unit && (!spec.fields.includes('district') || o.district === p.district))) throw new Error('國別、單位或區別不在選項設定內');
+  // Country is free text: only the authorized unit/district pair comes from options.
+  if (!opts.some(o => o.unit === p.unit && (!spec.fields.includes('district') || o.district === p.district)))
+    throw new Error('單位或區域不在選項設定內');
   return spec;
 }
 function safeText_(x) {
@@ -527,7 +529,7 @@ function validateChangeFields_(type,p){
     if(d.getFullYear()!==+m[1]||d.getMonth()!==+m[2]-1||d.getDate()!==+m[3])throw new Error('日期不正確');
   }
   const list=getOptions_().options;
-  if(!list.some(x=>x.country===p.country&&x.unit===p.unit&&x.district===p.district))throw new Error('國家、單位或區域不在設定名單內');
+  if(!list.some(x=>x.unit===p.unit&&x.district===p.district))throw new Error('單位或區域不在設定名單內');
 }
 function requestChange_(p){
   const rec=checkAccess_(p),type=String(rec.values[1]),id=String(rec.values[0]);
@@ -1537,10 +1539,11 @@ function settlementRows_(){
       const c=String(obj.country||'').trim(),u=String(obj.unit||'').trim(),
         d=String(obj.district||'').trim();
       if(!c||!u||!d)throw new Error('回報缺少國別、單位或區域，停止結算：'+id);
-      const areaKey=JSON.stringify([c,u,d]);
-      // 顯示欄不含國別/單位時，重名區域不應看似只有一個區。
+      // Region settlement and award identity must not split by a freely typed country.
+      const areaKey=JSON.stringify([u,d]);
+      // Protect the district-only settlement tabs against distinct units sharing a name.
       if(districtOwners[d]&&districtOwners[d]!==areaKey)
-        throw new Error('「'+d+'」在不同國別或單位重複，無法安全產生不含國別／單位的結算表；請管理員統一區域名稱');
+        throw new Error('「'+d+'」在不同單位重複，無法安全產生只有區域欄的結算表；請管理員統一區域名稱');
       districtOwners[d]=areaKey;
       if(!regions[areaKey])regions[areaKey]=[d,0,0,0,0,0,0,0,0,0,0,0,0,stamp];
       const area=regions[areaKey];
@@ -1564,7 +1567,7 @@ function settlementRows_(){
       if(['personal','family','personalClass','temple'].includes(type)){
         const name=String(obj[type==='personal'?'guide':type==='family'?'host':'mentor']||'').trim();
         if(name){
-          const key=JSON.stringify([c,u,d,name]);
+          const key=JSON.stringify([u,d,name]);
           if(!people[key])people[key]=[d,name,0,0,0,0,0,0];
           const metric=type==='personal'?2:type==='family'?3:
             type==='personalClass'?4+levelIndex:7;
@@ -1581,7 +1584,7 @@ function settlementRows_(){
         if(!halls[hallKey])halls[hallKey]=[temple,0,0,0,0];
         halls[hallKey][type==='public'?1:2+levelIndex]+=score;
         if(name){
-          const key=JSON.stringify([c,u,d,name,temple]);
+          const key=JSON.stringify([u,d,name,temple]);
           if(!publicPeople[key])publicPeople[key]=[temple,d,name,0,0,0,0];
           publicPeople[key][type==='public'?3:4+levelIndex]+=score;
         }
