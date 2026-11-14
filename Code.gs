@@ -962,6 +962,18 @@ function safeRegionCell_(x){
   return /^[=+\-@\t\r]/.test(v)?"'"+v:v;
 }
 function regionKey_(country,unit,district){return JSON.stringify([country,unit,district]);}
+// Authorized region identity is unit + district, independent of the reported country.
+function sameAuthorizedDistrict_(allowed,unit,district){
+  return allowed.some(x=>x.unit===unit&&x.district===district);
+}
+function uniqueAuthorizedDistricts_(allowed){
+  const seen=new Set();
+  return allowed.filter(x=>{
+    const key=JSON.stringify([x.unit,x.district]);
+    if(seen.has(key))return false;
+    seen.add(key);return true;
+  });
+}
 function validRegion_(country,unit,district){
   const c=String(country||'').trim(),u=String(unit||'').trim(),d=String(district||'').trim();
   if(!c||!u||!d||!getOptions_().options.some(o=>o.country===c&&o.unit===u&&o.district===d))
@@ -976,7 +988,7 @@ function regionViewRows_(country,unit,district){
     index.getRange(2,1,index.getLastRow()-1,5).getValues().forEach(row=>{
       if(row[0])statusById[String(row[0])]=String(row[4]||'已回報');
     });
-  const total=[target.country,target.unit,target.district,0,0,0,0,0,0,0,0,0,0,0],details=[];
+  const total=['各國',target.unit,target.district,0,0,0,0,0,0,0,0,0,0,0],details=[];
   Object.keys(TYPES).forEach(type=>{
     const spec=TYPES[type];
     reportSheets_(type).forEach(sh=>{
@@ -987,13 +999,13 @@ function regionViewRows_(country,unit,district){
     sh.getRange(2,1,sh.getLastRow()-1,header.length).getValues().forEach(row=>{
       if(!row[0])return;
       const p={};spec.fields.forEach((k,i)=>p[k]=row[i+3]);
-      // 先比對完整三段鍵值，才允許任何紀錄出現在輸出陣列。
-      if(p.country!==target.country||p.unit!==target.unit||p.district!==target.district)return;
+      // Country is free text; access is confined to the configured unit + district.
+      if(p.unit!==target.unit||p.district!==target.district)return;
       const id=String(row[0]),state=statusById[id]||'舊版未建立查詢憑證';
       const count=Number(p.count||0);
       const photoCount=spec.photo?String(row[row.length-1]||'').split('\n').filter(Boolean).length:0;
       details.push([
-        id,row[1],sh.getName(),target.country,target.unit,target.district,state,
+        id,row[1],sh.getName(),p.country,target.unit,target.district,state,
         spec.fields.includes('count')?count:'',
         p.classType||'',p.session||'',p.eventDate||'',p.guide||'',
         p.reporterName||'',p.temple||'',p.host||'',p.mentor||'',p.student||'',photoCount
@@ -1270,7 +1282,7 @@ function regionalAllowed_(passwordInput){
 }
 function regionalLookup_(payload){
   const allowed=regionalAllowed_(payload.regionalPassword);
-  const results=allowed.map(x=>regionViewRows_(x.country,x.unit,x.district));
+  const results=uniqueAuthorizedDistricts_(allowed).map(x=>regionViewRows_(x.country,x.unit,x.district));
   const details=[],summary=[];
   results.forEach(x=>{
     summary.push(x.summary[0]);x.details.forEach(row=>details.push(row));
@@ -1310,7 +1322,7 @@ function regionalReport_(p){
   const idx=findIndex_(id);
   const source=regionalReportSource_(id,idx);
   const f=source.report.values;
-  if(!allowed.some(x=>x.country===f.country&&x.unit===f.unit&&x.district===f.district))
+  if(!sameAuthorizedDistrict_(allowed,f.unit,f.district))
     throw new Error('此回報不在授權區域內');
   return {ok:true,id,type:source.type,version:idx?Number(idx.values[5]):0,
     status:idx?String(idx.values[4]):'已回報',
@@ -1349,7 +1361,7 @@ function regionalChangeRequest_(p){
     if(pendingChange_(id))throw new Error('已有待審核申請，請等管理員處理');
     const source=regionalReportSource_(id,idx);
     const type=source.type,report=source.report,f=report.values;
-    if(!latestAllowed.some(x=>x.country===f.country&&x.unit===f.unit&&x.district===f.district))
+    if(!sameAuthorizedDistrict_(latestAllowed,f.unit,f.district))
       throw new Error('此回報已不在密碼授權範圍');
     if(changeType==='modify'){
       validateChange_(type,f,patch);
@@ -1383,7 +1395,7 @@ function regionalChangeRequest_(p){
 function regionalRequests_(payload){
   const allowed=regionalAllowed_(payload.regionalPassword);
   const allowedIds={};
-  allowed.forEach(area=>regionViewRows_(area.country,area.unit,area.district)
+  uniqueAuthorizedDistricts_(allowed).forEach(area=>regionViewRows_(area.country,area.unit,area.district)
     .details.forEach(row=>{allowedIds[String(row[0])]=true;}));
   const sh=sheet_().getSheetByName('修改申請');
   if(!sh||sh.getLastRow()<2)return {ok:true,requests:[],total:0};
