@@ -150,7 +150,8 @@ function validateCleanPeriod_(p){
   // Lunar months may be leap months. The reporter must confirm the actual lunar day.
   if(!/^20\d{2}-(?:閏)?(?:0[1-9]|1[0-2])$/.test(month))
     throw new Error('農曆年月請填「2027-01」或「2027-閏06」格式');
-  if(!['初一','十五'].includes(day))throw new Error('農曆回報日須選初一或十五');
+  // Legacy 初一／十五 records remain valid; new reports use a neutral marker.
+  if(!['初一','十五','不限日期'].includes(day))throw new Error('整潔回報日期註記無效');
 }
 function validate_(p) {
   const spec = TYPES[p.type];
@@ -1649,7 +1650,8 @@ function settlementSchema_(ss,title,expected){
     title==='個人成績結算'?
     [PREVIOUS_V4_PERSON_HEADERS,PREVIOUS_V3_PERSON_HEADERS,PREVIOUS_V2_PERSON_HEADERS,PREVIOUS_PERSON_HEADERS]:
     title==='公堂成績結算'?[PREVIOUS_V5_PUBLIC_HEADERS,PREVIOUS_V4_PUBLIC_HEADERS]:
-    title==='公堂總成績結算'?[PREVIOUS_V5_HALL_HEADERS]:[];
+    title==='公堂總成績結算'?[PREVIOUS_V5_HALL_HEADERS]:
+    title==='莊嚴淨土回報核對'?[PREVIOUS_AWARD_CLEAN_CHECK_HEADERS]:[];
   if(legacy.some(headers=>matches(headers)))return {sheet:sh,upgrade:true};
   throw new Error('「'+title+'」表頭不符合目前或前一版結算格式，為保護資料停止更新');
 }
@@ -1933,7 +1935,8 @@ const AWARD_CURSOR_HEADERS=['來源類別','已結算至來源列','結算時間
 const AWARD_CLASS_HEADERS=['回報編號','區域','成全者','班員','班別','堂次'];
 
 const AWARD_CLEAN_HEADERS=['回報編號','國別','單位','區域','佛堂堂號','農曆年月','農曆日','實際整理日期','回報人'];
-const AWARD_CLEAN_CHECK_HEADERS=['區域','佛堂堂號','農曆年月','初一有效回報','十五有效回報','完整回報月份','核對狀態'];
+const PREVIOUS_AWARD_CLEAN_CHECK_HEADERS=['區域','佛堂堂號','農曆年月','初一有效回報','十五有效回報','完整回報月份','核對狀態'];
+const AWARD_CLEAN_CHECK_HEADERS=['區域','佛堂堂號','農曆年月','有效回報筆數','不同整理日期數','當月完成','核對狀態'];
 function awardCleanSet_(id,obj,records){
   validateCleanPeriod_(obj);
   const row=[id,...['country','unit','district','temple','lunarMonth','lunarDay','eventDate','reporterName'].map(k=>String(obj[k]||'').trim())];
@@ -1951,21 +1954,23 @@ function awardCleanRead_(ss){
   return {sheet:sh,records};
 }
 function awardCleanProgress_(records){
-  // Duplicate reports of the same first/fifteenth lunar day count only once.
+  // Two valid reports on two different actual cleaning dates in one reported lunar month.
+  // Ignore any legacy first/fifteenth label when evaluating eligibility.
   const months={};
   Object.values(records).forEach(row=>{
-    const [,country,unit,area,temple,month,day]=row;
+    const [id,country,unit,area,temple,month,,date]=row;
     const key=JSON.stringify([country,unit,area,temple,month]);
-    if(!months[key])months[key]={country,unit,area,temple,month,first:new Set(),fifteenth:new Set()};
+    if(!months[key])months[key]={area,temple,month,ids:new Set(),dates:new Set()};
     const group=months[key];
-    if(day==='初一')group.first.add(row[0]);
-    else if(day==='十五')group.fifteenth.add(row[0]);
+    group.ids.add(id);
+    // Distinct actual date guards against resubmitting the same cleaning twice.
+    if(date)group.dates.add(String(date).trim());
   });
-  const result=Object.values(months).map(x=>[
-    x.area,x.temple,x.month,x.first.size,x.fifteenth.size,
-    x.first.size>0&&x.fifteenth.size>0?1:0,
-    x.first.size>0&&x.fifteenth.size>0?'初一及十五皆有回報（待人工核實）':'缺少初一或十五'
-  ]);
+  const result=Object.values(months).map(group=>{
+    const completed=group.dates.size>=2;
+    return [group.area,group.temple,group.month,group.ids.size,group.dates.size,
+      completed?1:0,completed?'當月已回報兩個不同整理日期（待核實）':'當月尚未完成兩次不同日期回報'];
+  });
   result.sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'zh-Hant')||
     String(a[1]).localeCompare(String(b[1]),'zh-Hant')||
     String(a[2]).localeCompare(String(b[2]),'zh-Hant'));
