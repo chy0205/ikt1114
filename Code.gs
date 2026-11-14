@@ -1224,10 +1224,11 @@ function optionPasswordRegions_(password){
       return safeEquals_(requested,digest_(stored,'regional-manual-option'));
     });
     if(!matched)return;
-    const country=String(row[0]||'').trim(),unit=String(row[1]||'').trim(),
+    const country=String(row[0]||'').trim()||'各國',unit=String(row[1]||'').trim(),
       district=String(row[2]||'').trim();
-    if(!country||!unit||!district)return;
-    const key=regionKey_(country,unit,district);
+    // Country is optional in settings. Never reject a valid B+C area because A is blank.
+    if(!unit||!district)return;
+    const key=JSON.stringify([unit,district]);
     if(!seen[key]){seen[key]=true;regions.push({country,unit,district});}
   });
   if(regions.length>100)throw new Error('此密碼對應超過100個區域，請聯絡管理員');
