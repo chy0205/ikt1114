@@ -1802,27 +1802,37 @@ function awardIncrementRows_(ss,cursors,initial,totals){
         .forEach(r=>{if(r[0])states[String(r[0])]=String(r[4]);});
   }
   for(const type of sources){
-    const spec=TYPES[type],sh=ss.getSheetByName(spec.sheet);
-    const old=initial?1:Number(cursors[type]||1),last=sh?sh.getLastRow():1;
-    if(last<old)throw new Error('「'+spec.sheet+'」資料列數減少，請檢查是否有人刪除舊回報');
-    next[type]=last;
-    if(!sh||last<2)continue;
-    const headers=headersFor_(type),got=sh.getRange(1,1,1,headers.length).getDisplayValues()[0];
-    if(headers.some((h,i)=>h!==got[i]))throw new Error('「'+spec.sheet+'」表頭不符，停止領獎結算');
-    if(last<=old)continue;
-    const rows=sh.getRange(old+1,1,last-old,headers.length).getValues();
-    rows.forEach(row=>{
-      const id=String(row[0]||'').trim();if(!id)return;
-      if(newIds.has(id))throw new Error('新回報 UUID 重複：'+id);
-      newIds.add(id);
-      const status=initial?states[id]:(()=>{
-        const indexed=findIndex_(id);
-        return indexed?String(indexed.values[4]):'已回報';
-      })();
-      if(status!=='已取消')awardEffect_(type,awardSourceObject_(type,row),1,totals);
-      processed++;
-    });
+    for(const sh of reportSheets_(type)){
+      const sourceKey=type+'|'+sh.getName();
+      const old=initial?1:Number(cursors[sourceKey]||
+        (sh.getName()===TYPES[type].sheet?cursors[type]:0)||1);
+      const last=sh.getLastRow();
+      if(last<old)throw new Error('「'+sh.getName()+'」資料列數減少，請檢查是否有人刪除舊回報');
+      next[sourceKey]=last;
+      if(last<2)continue;
+      const headers=headersFor_(type),got=sh.getRange(1,1,1,headers.length).getDisplayValues()[0];
+      if(headers.some((h,i)=>h!==got[i]))
+        throw new Error('「'+sh.getName()+'」表頭不符，停止領獎結算');
+      if(last<=old)continue;
+      const rows=sh.getRange(old+1,1,last-old,headers.length).getValues();
+      rows.forEach(row=>{
+        const id=String(row[0]||'').trim();if(!id)return;
+        if(newIds.has(id))throw new Error('新回報 UUID 重複：'+id);
+        newIds.add(id);
+        const status=initial?states[id]:(()=>{
+          const indexed=findIndex_(id);
+          return indexed?String(indexed.values[4]):'已回報';
+        })();
+        if(status!=='已取消')awardEffect_(type,awardSourceObject_(type,row),1,totals);
+        processed++;
+      });
+    }
   }
+  // If a source tab disappears, never silently drop it from the incremental baseline.
+  if(!initial)Object.keys(cursors).forEach(k=>{
+    if(k.includes('|')&&!Object.prototype.hasOwnProperty.call(next,k))
+      throw new Error('領獎游標記錄的年度原始分頁已不存在：'+k+'，請先檢查或重建');
+  });
   // Each administrator-approved edit/cancel is recorded after its source write.
   const event=awardEventSheet_(ss),eventLast=event?event.getLastRow():1;
   const oldEvent=initial?eventLast:Number(cursors.EVENTS||1);
@@ -1861,7 +1871,8 @@ function settleAwardsNow(){
     const cursors={};
     if(!initial)cursor.getRange(2,1,cursor.getLastRow()-1,AWARD_CURSOR_HEADERS.length)
       .getValues().forEach(r=>{if(r[0])cursors[String(r[0])]=Number(r[1]);});
-    if(!initial&&Object.keys(TYPES).concat('EVENTS').some(k=>!Number.isInteger(cursors[k])||cursors[k]<1))
+    if(!initial&&(!Number.isInteger(cursors.EVENTS)||cursors.EVENTS<1||
+      Object.values(cursors).some(n=>!Number.isInteger(n)||n<1)))
       throw new Error('領獎結算游標不完整，已停止以免重複計算');
     const current=awardTotalsRead_(ss);
     if(initial&&current.sheet&&current.sheet.getLastRow()>1)
@@ -1878,8 +1889,7 @@ function settleAwardsNow(){
     // No automatic year split, and no new prize rules are invented.
     settlementSheet_(ss,'領獎累計',AWARD_TOTAL_HEADERS,delta.rows,totalSchema);
     awardWrite_(ss,prepared);
-    const cursorRows=Object.keys(TYPES).concat('EVENTS')
-      .map(k=>[k,delta.next[k],stamp]);
+    const cursorRows=Object.keys(delta.next).map(k=>[k,delta.next[k],stamp]);
     settlementSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS,cursorRows,
       {sheet:cursor,upgrade:false});
     auditSheet_().appendRow([new Date(),'award_increment','','',admin,'',
@@ -1944,7 +1954,7 @@ function adminRebuildAwardTotalsPrompt(){
     settlementSheet_(ss,'領獎累計',AWARD_TOTAL_HEADERS,delta.rows,total);
     awardWrite_(ss,prepared);
     settlementSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS,
-      Object.keys(TYPES).concat('EVENTS').map(k=>[k,delta.next[k],stamp]),{sheet:cursor,upgrade:false});
+      Object.keys(delta.next).map(k=>[k,delta.next[k],stamp]),{sheet:cursor,upgrade:false});
     ui.alert('領獎基準重建完成','共計算 '+delta.processed+' 筆原始回報，歷史領獎紀錄未刪除。',ui.ButtonSet.OK);
     return {ok:true,reports:delta.processed};
   }finally{lock.releaseLock();}
