@@ -46,7 +46,7 @@ textarea{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px sol
 <button type="button" class="tab-button" id="tabReport" role="tab" aria-selected="true" aria-controls="reportPanel">新增成績回報</button>
 <button type="button" class="tab-button" id="tabLookup" role="tab" aria-selected="false" aria-controls="lookupPanel">查詢／申請修改</button>
 <button type="button" class="tab-button" id="tabRegional" role="tab" aria-selected="false" aria-controls="regionalPanel">區域負責人查詢</button>
-</div><div id="reportPanel" role="tabpanel"><div class="notice"><strong>連續回報同一區域</strong>只要選好一次回報類別、國家、單位及區域；每筆成功送出後，保留這些選擇，只清空該筆明細與照片，直接填下一筆。每筆均獨立回報，請保存每筆憑證。</div><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option><option value="cleanTemple">莊嚴淨土（佛堂整潔）回報</option></select></div><div id="dynamic"></div><p id="ipCountryHint" class="hint" aria-live="polite">請直接輸入國家名稱（如台灣、日本），可選擇系統提供的建議。國家、單位、區域須符合管理員的選項設定，才能正確分配區域權限。</p><button id="submit" type="submit">填寫完成，檢查回報資料</button>
+</div><div id="reportPanel" role="tabpanel"><div class="notice"><strong>連續回報同一區域</strong>只要選好一次回報類別、國家、單位及區域；每筆成功送出後，保留這些選擇，只清空該筆明細與照片，直接填下一筆。每筆均獨立回報，請保存每筆憑證。</div><div class="progress-wrap" aria-label="填報進度"><div class="progress-top"><span id="stepName">步驟 1／3：選擇回報類別</span><span id="stepPercent">0%</span></div><div class="progress-track"><div id="progressBar" class="progress-bar"></div></div></div><form id="form"><div id="typeHelp" class="helper">選擇回報類別後，會依序顯示需要填寫的資料。</div><div class="field"><label for="type">回報類別 *</label><select id="type" required><option value="">請選擇回報類別</option><option value="personal">個人渡眾回報</option><option value="family">家堂渡眾回報</option><option value="public">公堂渡眾回報</option><option value="personalClass">個人成全進階班回報</option><option value="publicClass">公堂進階班回報</option><option value="temple">成全安堂完成回報</option><option value="cleanTemple">莊嚴淨土（佛堂整潔）回報</option></select></div><div id="dynamic"></div><p id="ipCountryHint" class="hint" aria-live="polite">國家自行輸入；單位列出全部選項，不受國家限制。區域依單位選擇，例：馬來西亞／中和／中和001。</p><button id="submit" type="submit">填寫完成，檢查回報資料</button>
 <div id="reportReview" class="lookup-card hidden" aria-live="polite">
   <h3 style="margin:0 0 8px">第二次確認：請逐項檢查</h3>
   <p class="muted-note">下方內容尚未送出。請確認姓名、區域、班別、人數、日期及照片都正確；有錯誤請按「返回修改」。</p>
@@ -300,30 +300,23 @@ function setShown(key,shown){
 function showSteps(){
   const spec=TYPES[el('type').value];
   if(!spec){submitButton.classList.add('hidden');return;}
-  const country=el('country')?.value||'';
+  const country=el('country')?.value.trim()||'';
   const unit=el('unit')?.value||'';
-  const needsDistrict=spec.includes('district');
   const district=el('district')?.value||'';
+  // Country is a free-text label. Always show all units; regions depend only on unit.
   setShown('country',true);
-  // 唯一單位自動帶入並略過單位欄，不必讓填報者再點選。
-  const soleUnit = country && unique(options.filter(o=>o.country===country).map(o=>o.unit)).length===1;
-  setShown('unit',!!country&&!soleUnit);
-  if(needsDistrict)setShown('district',!!country&&!!unit);
-  const ready=optionsReady&&!!country&&!!unit&&(!needsDistrict||!!district);
+  setShown('unit',true);
+  if(spec.includes('district'))setShown('district',true);
+  const ready=optionsReady&&!!country&&!!unit&&(!spec.includes('district')||!!district);
   for(const key of spec.filter(k=>!['country','unit','district'].includes(k)))setShown(key,ready);
   submitButton.classList.toggle('hidden',!ready);
   updateProgress();
 }
-function onCountryChange(){
-  const country=el('country').value;
-  const units=populate('unit',options.filter(o=>o.country===country).map(o=>o.unit));
-  // 若該國只有一個單位，自動帶入並直接進入區域或下一個欄位。
-  if(units.length===1)el('unit').value=units[0];
-  onUnitChange();
-}
+function onCountryChange(){showSteps();}
 function onUnitChange(){
-  const country=el('country')?.value,unit=el('unit')?.value;
-  if(el('district'))populate('district',options.filter(o=>o.country===country&&o.unit===unit).map(o=>o.district));
+  const unit=el('unit')?.value;
+  if(el('district'))
+    populate('district',options.filter(o=>o.unit===unit).map(o=>o.district));
   showSteps();
 }
 function populateCountrySuggestions_(){
@@ -336,12 +329,10 @@ function populateCountrySuggestions_(){
 }
 function validateCountryChoice_(){
   const node=el('country');if(!node)return false;
-  node.value=node.value.trim();
-  const valid=!node.value||options.some(o=>o.country===node.value);
-  node.setCustomValidity(valid?'':'此國家尚未在「選項設定」登錄，請聯絡管理員新增，或使用已登錄的國家名稱');
-  el('ipCountryHint').textContent=valid?
-    '國家由填報者自行輸入；單位及區域仍依「選項設定」連動。':
-    '找不到「'+node.value+'」的設定，需先請管理員在「選項設定」加入該國家與對應單位、區域。';
+  const value=node.value.trim();
+  const valid=!!value&&value.length<=120;
+  node.setCustomValidity(valid?'':'請自行輸入國家名稱（最多120字）');
+  el('ipCountryHint').textContent='國家可自行輸入，不限制對應單位；請從完整單位清單選擇，再選所屬區域。';
   return valid;
 }
 function renderType(){
@@ -354,16 +345,16 @@ function renderType(){
   const spec=TYPES[el('type').value];
   if(!spec){submitButton.classList.add('hidden');return;}
   for(const key of spec)target.append(field(key));
-  el('country').addEventListener('input',()=>{
-    validateCountryChoice_();onCountryChange();
-  });
+  el('country').addEventListener('input',onCountryChange);
   el('country').addEventListener('change',()=>{
     validateCountryChoice_();onCountryChange();
   });
   el('unit').addEventListener('change',onUnitChange);
   if(el('district'))el('district').addEventListener('change',showSteps);
   populateCountrySuggestions_();
-  for(const key of spec.filter(k=>k!=='country'))setShown(key,false);
+  populate('unit',options.map(o=>o.unit));
+  onUnitChange();
+  for(const key of spec.filter(k=>!['country','unit','district'].includes(k)))setShown(key,false);
   if(lastCountry){
     el('country').value=lastCountry;
     validateCountryChoice_();
@@ -376,7 +367,7 @@ function renderType(){
     }
   }
   // No IP geolocation: the country is entered entirely by the reporter.
-  // 初始只顯示國家；選國家後才出現單位或區域，最後出現回報欄位。
+  // Three location fields are always shown, regardless of country.
   showSteps();
 }
 el('type').addEventListener('change',renderType);
