@@ -346,6 +346,9 @@ function validateCountryChoice_(){
 }
 function renderType(){
   closeReportReview_();
+  // Preserve manually entered geography when switching report categories.
+  const lastCountry=el('country')?.value||'',lastUnit=el('unit')?.value||'',
+    lastDistrict=el('district')?.value||'';
   const target=el('dynamic');target.replaceChildren();el('status').textContent='';
   el('typeHelp').textContent=TYPE_HELP[typeField.value]||'選擇回報類別後，會依序顯示需要填寫的資料。';
   const spec=TYPES[el('type').value];
@@ -361,6 +364,17 @@ function renderType(){
   if(el('district'))el('district').addEventListener('change',showSteps);
   populateCountrySuggestions_();
   for(const key of spec.filter(k=>k!=='country'))setShown(key,false);
+  if(lastCountry){
+    el('country').value=lastCountry;
+    validateCountryChoice_();
+    onCountryChange();
+    if(lastUnit&&[...el('unit').options].some(x=>x.value===lastUnit)){
+      el('unit').value=lastUnit;
+      onUnitChange();
+      if(lastDistrict&&el('district')&&[...el('district').options].some(x=>x.value===lastDistrict))
+        el('district').value=lastDistrict;
+    }
+  }
   // No IP geolocation: the country is entered entirely by the reporter.
   // 初始只顯示國家；選國家後才出現單位或區域，最後出現回報欄位。
   showSteps();
