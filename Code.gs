@@ -352,6 +352,120 @@ function findReport_(type,id){
   });
   return answer;
 }
+/**
+ * One-off, admin-confirmed migration from six unsuffixed legacy sheets into
+ * per-year sheets. Retain a hidden backup and archive source tabs. Safe to
+ * restart after partial failure: matching UUID rows are not appended twice.
+ * Run BEFORE the first manual award settlement, since it changes source cursors.
+ */
+function migrateRawReportSheetsByYear(){
+  const admin=requireAdmin_();
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    const ss=sheet_(),cursor=ss.getSheetByName('領獎結算游標');
+    if(cursor&&cursor.getLastRow()>1)
+      throw new Error('已有領獎增量基準，搬移原表會改變游標。請先由管理員規劃安全重建，不可直接搬移');
+    const jobs=[],seen={};
+    // Precheck all six source tabs and all existing destination tabs before writes.
+    Object.keys(TYPES).forEach(type=>{
+      reportSheets_(type).forEach(sh=>{
+        if(!sh.getLastRow())return;
+        ensureSchema_(sh,type);
+        if(sh.getName()!==TYPES[type].sheet&&sh.getLastRow()>1)
+          sh.getRange(2,1,sh.getLastRow()-1,1).getValues().forEach(row=>{
+            const id=String(row[0]||'');
+            if(!id)return;
+            if(seen[id])throw new Error('現有年度分頁重複回報 UUID：'+id);
+            seen[id]=sh.getName();
+          });
+      });
+      const src=ss.getSheetByName(TYPES[type].sheet);
+      if(!src||src.getLastRow()<2)return;
+      ensureSchema_(src,type);
+      const rows=src.getRange(2,1,src.getLastRow()-1,headersFor_(type).length).getValues();
+      rows.forEach(row=>{
+        const id=String(row[0]||'').trim();
+        if(!id)return;
+        if(seen[id]&&seen[id]===TYPES[type].sheet)
+          throw new Error('舊原表內重複回報 UUID：'+id);
+        const submitted=row[1];
+        if(!(submitted instanceof Date)||!Number.isFinite(submitted.getTime()))
+          throw new Error('舊表「'+TYPES[type].sheet+'」送出時間不是有效日期：'+id);
+        const year=reportYear_(submitted),dest=yearlyReportName_(type,year);
+        if(seen[id]&&seen[id]!==dest)
+          throw new Error('舊原表的回報編號已出現在不同年度分頁：'+id);
+        seen[id]=dest;
+        jobs.push({type,id,year,dest,source:src,row});
+      });
+    });
+    const total=jobs.length;
+    if(!total)return {ok:true,moved:0,archived:0,years:[]};
+    const grouped={},years=new Set();
+    jobs.forEach(job=>{
+      (grouped[job.dest]||(grouped[job.dest]=[])).push(job);
+      years.add(job.year);
+    });
+    // Verify existing same-UUID destination rows agree; otherwise stop safely.
+    Object.keys(grouped).forEach(name=>{
+      const sh=ss.getSheetByName(name),jobsHere=grouped[name];
+      if(sh&&sh.getLastRow()>1){
+        const type=jobsHere[0].type,headers=headersFor_(type);
+        ensureSchema_(sh,type);
+        const existing={};
+        sh.getRange(2,1,sh.getLastRow()-1,headers.length).getValues()
+          .forEach(row=>{if(row[0])existing[String(row[0])]=row;});
+        jobsHere.forEach(job=>{
+          if(!existing[job.id])return;
+          const left=existing[job.id],right=job.row;
+          if(left.length!==right.length||left.some((v,i)=>
+            (v instanceof Date?v.getTime():String(v))!==
+            (right[i] instanceof Date?right[i].getTime():String(right[i]))))
+            throw new Error('年度表已有同 UUID 但內容不同，請人工核對：'+job.id);
+        });
+      }
+    });
+    // Source sheet copies remain hidden and are excluded from score scans.
+    const stamp=Utilities.formatDate(new Date(),'Asia/Taipei','MMdd_HHmmss');
+    const sources=[...new Set(jobs.map(job=>job.source))];
+    sources.forEach(src=>{
+      const backup='備份_年度拆分_'+src.getName()+'_'+stamp;
+      if(ss.getSheetByName(backup))throw new Error('年度拆分備份已存在：'+backup);
+      src.copyTo(ss).setName(backup).hideSheet();
+    });
+    let moved=0;
+    Object.keys(grouped).forEach(name=>{
+      const batch=grouped[name],sh=reportSheet_(batch[0].type,batch[0].year);
+      const ids=new Set();
+      if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,1).getValues()
+        .forEach(row=>{if(row[0])ids.add(String(row[0]));});
+      const addRows=batch.filter(job=>!ids.has(job.id)).map(job=>job.row);
+      if(addRows.length){
+        sh.getRange(sh.getLastRow()+1,1,addRows.length,headersFor_(batch[0].type).length)
+          .setValues(addRows);
+        moved+=addRows.length;
+      }
+    });
+    sources.forEach(src=>{
+      const archived='封存_原始_'+src.getName()+'_'+stamp;
+      if(ss.getSheetByName(archived))throw new Error('封存名稱重複：'+archived);
+      src.setName(archived).hideSheet();
+    });
+    auditSheet_().appendRow([new Date(),'raw_year_migration','','',admin,'',
+      JSON.stringify({moved,sourceCount:sources.length,years:[...years]}),
+      '按送出日期拆分原始回報至年度分頁，已保留隱藏備份']);
+    return {ok:true,moved,archived:sources.length,years:[...years].sort()};
+  }finally{lock.releaseLock();}
+}
+function adminMigrateRawByYearPrompt(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi();
+  if(ui.alert('舊六張回報按年度拆分',
+    '將依「送出時間」的台灣年度，把舊六張原始回報搬至例如「個人渡眾_2026」。原表會先備份，再封存隱藏；回報編號及照片連結保留。請先備份整份試算表。確定執行？',
+    ui.ButtonSet.YES_NO)!==ui.Button.YES)return;
+  const res=migrateRawReportSheetsByYear();
+  ui.alert('年度歸檔完成','實際搬入 '+res.moved+' 筆；封存原表 '+res.archived+' 張。',ui.ButtonSet.OK);
+  return res;
+}
 function checkAccess_(p){
   requireSecuritySetup_();
   const id=String(p.id||'').trim(),password=String(p.lookupPassword||'');
@@ -596,6 +710,7 @@ function onOpen(e){
     .addSeparator()
     .addItem('審核修改／取消申請…','adminReviewPending')
     .addItem('成績、索引與照片健檢…','adminIntegrityCheckPrompt')
+    .addItem('將舊六張原始回報按年度歸檔…','adminMigrateRawByYearPrompt')
     .addItem('重新結算個人與區域成績…','adminRecalculateScoresPrompt')
     .addItem('領獎結算面板（按鈕）…','adminOpenAwardSettlementPanel')
     .addItem('登記已領獎（不可重領）…','adminRegisterAwardClaimPrompt')
