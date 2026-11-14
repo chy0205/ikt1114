@@ -714,6 +714,7 @@ function onOpen(e){
     .addItem('將舊六張原始回報按年度歸檔…','adminMigrateRawByYearPrompt')
     .addItem('重新結算個人與區域成績…','adminRecalculateScoresPrompt')
     .addItem('領獎結算面板（按鈕）…','adminOpenAwardSettlementPanel')
+    .addItem('同步 PDF 正式獎項規則…','adminSyncOfficialAwardRulesPrompt')
     .addItem('登記已領獎（不可重領）…','adminRegisterAwardClaimPrompt')
     .addItem('重建領獎累計（修復用）…','adminRebuildAwardTotalsPrompt')
     .addItem('啟用每5分鐘自動結算…','adminInstallAutoSettlementPrompt')
@@ -1733,6 +1734,44 @@ function awardRules_(ss){
       throw new Error('獎項設定門檻須為大於0的整數：'+code);
     return {code,name,kind,metric,threshold,enabled};
   });
+}
+/** Idempotent, admin-approved import of any missing official PDF rules.
+ * Existing award codes are left unchanged and reported for manual review.
+ */
+function adminSyncOfficialAwardRulesPrompt(){
+  const admin=requireAdmin_(),ui=SpreadsheetApp.getUi();
+  const ss=sheet_(),sh=awardProtectedSheet_(ss,'獎項設定',AWARD_RULE_HEADERS);
+  const present=sh&&sh.getLastRow()>1?
+    sh.getRange(2,1,sh.getLastRow()-1,AWARD_RULE_HEADERS.length).getValues():[];
+  const names={};
+  present.forEach(row=>{if(row[0])names[String(row[0]).trim()]=row;});
+  const missing=AWARD_OFFICIAL_RULES.filter(r=>!Object.prototype.hasOwnProperty.call(names,r[0]));
+  const different=AWARD_OFFICIAL_RULES.filter(row=>names[row[0]]&&
+    row.some((v,i)=>String(names[row[0]][i])!==String(v))).map(row=>row[0]);
+  if(ui.alert('同步白陽慈航正式獎項',
+    '將補上缺少的 '+missing.length+' 個 PDF 正式獎項，不修改既有的獎項代碼、名稱與門檻。'+
+    (different.length?'\\n已有 '+different.length+' 個同代碼但設定不同的獎項，會原樣保留，請另外核對：'+different.join('、'):'')+
+    '\\n莊嚴淨土獎缺少回報來源，暫不自動啟用。確認繼續？',
+    ui.ButtonSet.YES_NO)!==ui.Button.YES)return {ok:false,cancelled:true};
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    // Re-read under lock to avoid duplicate codes.
+    const current=awardProtectedSheet_(ss,'獎項設定',AWARD_RULE_HEADERS);
+    const currentCodes={};
+    if(current&&current.getLastRow()>1)
+      current.getRange(2,1,current.getLastRow()-1,1).getValues().forEach(row=>{
+        if(row[0])currentCodes[String(row[0]).trim()]=true;
+      });
+    const add=AWARD_OFFICIAL_RULES.filter(row=>!currentCodes[row[0]]);
+    const target=awardEnsureProtected_(ss,'獎項設定',AWARD_RULE_HEADERS,current);
+    if(add.length)target.getRange(target.getLastRow()+1,1,add.length,AWARD_RULE_HEADERS.length)
+      .setValues(add);
+    auditSheet_().appendRow([new Date(),'official_awards_sync','','',admin,'',
+      JSON.stringify({added:add.map(row=>row[0]),differences:different}),
+      '同步2027白陽慈航 PDF 獎項，未覆寫已有設定']);
+    ui.alert('同步完成','新增 '+add.length+' 個獎項；原設定保留。',ui.ButtonSet.OK);
+    return {ok:true,added:add.length,different};
+  }finally{lock.releaseLock();}
 }
 function awardClaims_(ss){
   const sh=awardProtectedSheet_(ss,'領獎紀錄',AWARD_CLAIM_HEADERS);
