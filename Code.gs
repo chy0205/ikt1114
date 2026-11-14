@@ -11,6 +11,7 @@ const TYPES = {
   personalClass: { sheet: '個人成全進階班', fields: ['country','unit','district','classType','mentor','student','eventDate','session'], photo: true },
   publicClass: { sheet: '公堂進階班', fields: ['country','unit','district','reporterName','temple','classType','count'], photo: true },
   temple: { sheet: '成全安堂完成', fields: ['country','unit','district','mentor','host','eventDate'], photo: true },
+  cleanTemple: { sheet: '莊嚴淨土', fields: ['country','unit','district','reporterName','temple','lunarMonth','lunarDay','eventDate'], photo: true },
 };
 // 六種成績各自使用專屬欄位；沒有出現在該類表單的欄位不建立於該工作表。
 const BASE_HEADERS = ['回報編號','送出時間','回報類別'];
@@ -20,7 +21,8 @@ const FIELD_HEADERS = {
   temple: '佛堂／公堂堂號', host: '壇主姓名',
   mentor: '成全者姓名', student: '班員姓名',
   classType: '進階班類別', eventDate: '辦道／上課／正式安堂日期',
-  count: '渡眾／達標人數', session: '上課次數'
+  count: '渡眾／達標人數', session: '上課次數',
+  lunarMonth: '農曆年月', lunarDay: '農曆回報日（初一／十五）'
 };
 const TYPE_LABELS = {
   personal: { eventDate: '辦道日期', count: '渡眾人數' },
@@ -28,7 +30,8 @@ const TYPE_LABELS = {
   public: { temple: '公堂堂號', eventDate: '辦道日期', count: '渡眾人數' },
   personalClass: { eventDate: '上課日期' },
   publicClass: { temple: '公堂堂號', count: '堂數達標之班員人數' },
-  temple: { eventDate: '正式安堂日期' }
+  temple: { eventDate: '正式安堂日期' },
+  cleanTemple: { temple: '佛堂堂號', eventDate: '實際整理日期' }
 };
 function headersFor_(type) {
   const spec = TYPES[type], names = TYPE_LABELS[type] || {};
@@ -142,11 +145,19 @@ function getOptions_() {
   const options = rows.filter(r => r[0] && r[1] && r[2]).map(r => ({country:r[0].trim(),unit:r[1].trim(),district:r[2].trim()}));
   return {ok:true,options};
 }
+function validateCleanPeriod_(p){
+  const month=String(p.lunarMonth||'').trim(),day=String(p.lunarDay||'').trim();
+  // Lunar months may be leap months. The reporter must confirm the actual lunar day.
+  if(!/^20\\d{2}-(?:閏)?(?:0[1-9]|1[0-2])$/.test(month))
+    throw new Error('農曆年月請填「2027-01」或「2027-閏06」格式');
+  if(!['初一','十五'].includes(day))throw new Error('農曆回報日須選初一或十五');
+}
 function validate_(p) {
   const spec = TYPES[p.type];
   if (!spec) throw new Error('無效的回報類別');
   for (const key of spec.fields) if (p[key] === undefined || p[key] === null || String(p[key]).trim() === '') throw new Error('缺少必填欄位：' + key);
   if (p.classType && !['禮行','義理','仁德'].includes(p.classType)) throw new Error('進階班類別錯誤');
+  if(p.type==='cleanTemple')validateCleanPeriod_(p);
   if (p.session && (!Number.isInteger(Number(p.session)) || +p.session < 1 || +p.session > 24)) throw new Error('上課次數必須為1至24');
   if (spec.fields.includes('count') && (!Number.isInteger(Number(p.count)) || Number(p.count) < 0)) throw new Error('人數必須是非負整數');
   if (p.eventDate && (!/^\d{4}-\d{2}-\d{2}$/.test(p.eventDate) || isNaN(Date.parse(p.eventDate)))) throw new Error('日期格式錯誤');
@@ -505,6 +516,7 @@ function validateChangeFields_(type,p){
   const spec=TYPES[type];
   spec.fields.forEach(k=>{if(!String(p[k]===undefined?'':p[k]).trim())throw new Error(k+' 為必填');});
   if(p.classType&&!['禮行','義理','仁德'].includes(p.classType))throw new Error('進階班類別錯誤');
+  if(type==='cleanTemple')validateCleanPeriod_(p);
   if(p.session&&(!Number.isInteger(Number(p.session))||Number(p.session)<1||Number(p.session)>24))throw new Error('上課次數錯誤');
   if(p.count!==undefined&&(!/^\d+$/.test(String(p.count))||!Number.isSafeInteger(Number(p.count))))throw new Error('人數必須為非負整數');
   if(p.eventDate){
@@ -985,7 +997,9 @@ function regionViewRows_(country,unit,district){
       ].map(safeRegionCell_));
       if(state==='已取消')return;
       const metric={personal:3,family:4,public:5,temple:12}[type];
-      if(metric)total[metric]+=type==='temple'?1:count;
+      if(type==='cleanTemple'){
+        // Monthly cleaning evidence appears in details but is not a score metric.
+      }else if(metric)total[metric]+=type==='temple'?1:count;
       else{
         const classIndex=CLASS_LEVELS.indexOf(String(p.classType||'').trim());
         if(classIndex<0)throw new Error('進階班類別不是禮行、義理或仁德，停止統計：'+id);
@@ -1544,6 +1558,7 @@ function settlementRows_(){
       if(regionCol)area[regionCol]+=score;
       else if(type==='personalClass')area[4+levelIndex]+=score;
       else if(type==='publicClass')area[7+levelIndex]+=score;
+      // Cleaning records count as effective reports, not a separate score column.
       area[11]++;
       if(['personal','family','personalClass','temple'].includes(type)){
         const name=String(obj[type==='personal'?'guide':type==='family'?'host':'mentor']||'').trim();
@@ -1978,6 +1993,7 @@ function awardEffect_(type,obj,sign,totals){
   if(!name)return; // Same convention as the four score settlement sheets.
   const kind=type==='public'||type==='publicClass'?'公堂':'個人';
   const key=awardKey_(kind,name,'',kind==='個人'?area:'');
+  if(type==='cleanTemple')return; // Evidence is held in a dedicated deduplicated monthly index.
   const score=['personalClass','temple'].includes(type)?1:Number(obj.count);
   if(!Number.isInteger(score)||score<0)throw new Error('領獎回報分數必須是非負整數');
   const classType=String(obj.classType||'').trim();
