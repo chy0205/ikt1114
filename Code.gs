@@ -1931,6 +1931,47 @@ const AWARD_TOTAL_HEADERS=['對象','區域','姓名／堂號','個人渡眾','�
   '公堂禮行','公堂義理','公堂仁德'];
 const AWARD_CURSOR_HEADERS=['來源類別','已結算至來源列','結算時間'];
 const AWARD_CLASS_HEADERS=['回報編號','區域','成全者','班員','班別','堂次'];
+
+const AWARD_CLEAN_HEADERS=['回報編號','國別','單位','區域','佛堂堂號','農曆年月','農曆日','實際整理日期','回報人'];
+const AWARD_CLEAN_CHECK_HEADERS=['區域','佛堂堂號','農曆年月','初一有效回報','十五有效回報','完整回報月份','核對狀態'];
+function awardCleanSet_(id,obj,records){
+  validateCleanPeriod_(obj);
+  const row=[id,...['country','unit','district','temple','lunarMonth','lunarDay','eventDate','reporterName'].map(k=>String(obj[k]||'').trim())];
+  if(row.slice(1).some(x=>!x))throw new Error('莊嚴淨土回報缺少必要欄位：'+id);
+  records[id]=row;
+}
+function awardCleanRead_(ss){
+  const sh=awardProtectedSheet_(ss,'領獎整潔回報索引',AWARD_CLEAN_HEADERS),records={};
+  if(sh&&sh.getLastRow()>1)
+    sh.getRange(2,1,sh.getLastRow()-1,AWARD_CLEAN_HEADERS.length).getValues().forEach(row=>{
+      const id=String(row[0]||'').trim();if(!id)return;
+      if(records[id])throw new Error('整潔回報索引重複回報編號：'+id);
+      records[id]=row.map(String);
+    });
+  return {sheet:sh,records};
+}
+function awardCleanProgress_(records){
+  // Duplicate reports of the same first/fifteenth lunar day count only once.
+  const months={};
+  Object.values(records).forEach(row=>{
+    const [,country,unit,area,temple,month,day]=row;
+    const key=JSON.stringify([country,unit,area,temple,month]);
+    if(!months[key])months[key]={country,unit,area,temple,month,first:new Set(),fifteenth:new Set()};
+    const group=months[key];
+    if(day==='初一')group.first.add(row[0]);
+    else if(day==='十五')group.fifteenth.add(row[0]);
+  });
+  const result=Object.values(months).map(x=>[
+    x.area,x.temple,x.month,x.first.size,x.fifteenth.size,
+    x.first.size>0&&x.fifteenth.size>0?1:0,
+    x.first.size>0&&x.fifteenth.size>0?'初一及十五皆有回報（待人工核實）':'缺少初一或十五'
+  ]);
+  result.sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'zh-Hant')||
+    String(a[1]).localeCompare(String(b[1]),'zh-Hant')||
+    String(a[2]).localeCompare(String(b[2]),'zh-Hant'));
+  return result;
+}
+
 // One index row per currently valid personal-class report. This lets later manual
 // settlements process only new / approved-changed UUIDs without re-reading old raw tabs.
 function awardClassRead_(ss){
@@ -1969,12 +2010,13 @@ function awardClassQualified_(classes){
   });
   return Object.values(result);
 }
-function awardDataFor_(rows,stamp,classes){
+function awardDataFor_(rows,stamp,classes,cleanRecords){
   return {personal:rows.filter(r=>r[0]==='個人')
       .map(r=>[r[1],r[2],r[3],r[4],r[5],r[6],r[7],r[8]]),
     halls:rows.filter(r=>r[0]==='公堂')
       .map(r=>[r[2],r[9],r[10],r[11],r[12]]),
-    personalClassQualified:awardClassQualified_(classes||{}),stamp};
+    personalClassQualified:awardClassQualified_(classes||{}),
+    cleanProgress:awardCleanProgress_(cleanRecords||{}),stamp};
 }
 
 const AWARD_EVENT_HEADERS=['異動時間','回報編號','回報類別','異動類型','異動前JSON','異動後JSON'];
@@ -2024,9 +2066,9 @@ function awardDataFromTotals_(ss){
   if(!cursor||cursor.getLastRow()<2)
     throw new Error('尚未按「立即結算到現在」建立領獎累計基準');
   const rows=Object.values(awardTotalsRead_(ss).totals);
-  const classes=awardClassRead_(ss).rows;
+  const classes=awardClassRead_(ss).rows,clean=awardCleanRead_(ss).records;
   return awardDataFor_(rows,
-    String(cursor.getRange(2,3,1,1).getDisplayValues()[0][0]||''),classes);
+    String(cursor.getRange(2,3,1,1).getDisplayValues()[0][0]||''),classes,clean);
 }
 function awardEventSheet_(ss){
   return awardProtectedSheet_(ss,'領獎異動紀錄',AWARD_EVENT_HEADERS);
@@ -2036,7 +2078,7 @@ function awardApprovedChange_(id,type,action,before,after){
   if(sh.getLastRow()===0)sh.getRange(1,1,1,AWARD_EVENT_HEADERS.length).setValues([AWARD_EVENT_HEADERS]);
   sh.appendRow([new Date(),id,type,action,JSON.stringify(before),JSON.stringify(after)]);
 }
-function awardIncrementRows_(ss,cursors,initial,totals,classes){
+function awardIncrementRows_(ss,cursors,initial,totals,classes,clean){
   const sources=Object.keys(TYPES),newIds=new Set(),next={};
   let processed=0;
   // Only the first click scans the historical index for canceled reports.
@@ -2073,6 +2115,7 @@ function awardIncrementRows_(ss,cursors,initial,totals,classes){
           const obj=awardSourceObject_(type,row);
           awardEffect_(type,obj,1,totals);
           if(type==='personalClass')awardClassSet_(id,obj,classes);
+          if(type==='cleanTemple')awardCleanSet_(id,obj,clean);
         }
         processed++;
       });
@@ -2103,6 +2146,10 @@ function awardIncrementRows_(ss,cursors,initial,totals,classes){
         if(type==='personalClass'){
           delete classes[id];
           if(action==='modify')awardClassSet_(id,after,classes);
+        }
+        if(type==='cleanTemple'){
+          delete clean[id];
+          if(action==='modify')awardCleanSet_(id,after,clean);
         }
         corrected++;
       });
@@ -2135,14 +2182,22 @@ function settleAwardsNow(){
     const classState=awardClassRead_(ss);
     if(!initial&&!classState.sheet)throw new Error('進階班出席索引遺失，請執行重建領獎累計');
     const classes=initial?{}:classState.rows;
-    const delta=awardIncrementRows_(ss,cursors,initial,totals,classes);
+    const cleanState=awardCleanRead_(ss);
+    if(!initial&&!cleanState.sheet)
+      throw new Error('莊嚴淨土回報索引尚未建立，請使用重建領獎累計（保留已領獎紀錄）');
+    const clean=initial?{}:cleanState.records;
+    const delta=awardIncrementRows_(ss,cursors,initial,totals,classes,clean);
     const stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss');
-    const awardData=awardDataFor_(delta.rows,stamp,classes);
+    const awardData=awardDataFor_(delta.rows,stamp,classes,clean);
     const prepared=awardPrepare_(ss,awardData);
     const totalSchema=settlementSchema_(ss,'領獎累計',AWARD_TOTAL_HEADERS);
     const classSchema=settlementSchema_(ss,'領獎個人班出席索引',AWARD_CLASS_HEADERS);
     settlementSheet_(ss,'領獎累計',AWARD_TOTAL_HEADERS,delta.rows,totalSchema);
     settlementSheet_(ss,'領獎個人班出席索引',AWARD_CLASS_HEADERS,Object.values(classes),classSchema);
+    settlementSheet_(ss,'領獎整潔回報索引',AWARD_CLEAN_HEADERS,Object.values(clean),
+      settlementSchema_(ss,'領獎整潔回報索引',AWARD_CLEAN_HEADERS));
+    settlementSheet_(ss,'莊嚴淨土回報核對',AWARD_CLEAN_CHECK_HEADERS,awardData.cleanProgress,
+      settlementSchema_(ss,'莊嚴淨土回報核對',AWARD_CLEAN_CHECK_HEADERS));
     awardWrite_(ss,prepared);
     const cursorRows=Object.keys(delta.next).map(k=>[k,delta.next[k],stamp]);
     settlementSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS,cursorRows,
@@ -2200,14 +2255,18 @@ function adminRebuildAwardTotalsPrompt(){
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   try{
     const ss=sheet_(),cursor=awardProtectedSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS);
-    const totals={},classes={},delta=awardIncrementRows_(ss,{},true,totals,classes),
+    const totals={},classes={},clean={},delta=awardIncrementRows_(ss,{},true,totals,classes,clean),
       stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyy/MM/dd HH:mm:ss');
-    const data=awardDataFor_(delta.rows,stamp,classes);
+    const data=awardDataFor_(delta.rows,stamp,classes,clean);
     const prepared=awardPrepare_(ss,data);
     const total=settlementSchema_(ss,'領獎累計',AWARD_TOTAL_HEADERS);
     settlementSheet_(ss,'領獎累計',AWARD_TOTAL_HEADERS,delta.rows,total);
     settlementSheet_(ss,'領獎個人班出席索引',AWARD_CLASS_HEADERS,Object.values(classes),
       settlementSchema_(ss,'領獎個人班出席索引',AWARD_CLASS_HEADERS));
+    settlementSheet_(ss,'領獎整潔回報索引',AWARD_CLEAN_HEADERS,Object.values(clean),
+      settlementSchema_(ss,'領獎整潔回報索引',AWARD_CLEAN_HEADERS));
+    settlementSheet_(ss,'莊嚴淨土回報核對',AWARD_CLEAN_CHECK_HEADERS,data.cleanProgress,
+      settlementSchema_(ss,'莊嚴淨土回報核對',AWARD_CLEAN_CHECK_HEADERS));
     awardWrite_(ss,prepared);
     settlementSheet_(ss,'領獎結算游標',AWARD_CURSOR_HEADERS,
       Object.keys(delta.next).map(k=>[k,delta.next[k],stamp]),{sheet:cursor,upgrade:false});
