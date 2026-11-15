@@ -1527,11 +1527,13 @@ function previewTestDataReset(){
   const ss=sheet_(),claim=ss.getSheetByName('領獎紀錄');
   const claimRows=claim?Math.max(0,claim.getLastRow()-1):0;
   const targets=testResetTargets_(ss);
-  return {ok:true,blocked:claimRows>0,existingClaims:claimRows,
-    sheets:targets.map(sh=>({name:sh.getName(),rows:Math.max(0,sh.getLastRow()-1)})),
-    totalRows:targets.reduce((n,sh)=>n+Math.max(0,sh.getLastRow()-1),0)};
+  const sheets=targets.map(sh=>({name:sh.getName(),rows:Math.max(0,sh.getLastRow()-1)}));
+  return {ok:true,blocked:claimRows>0,existingClaims:claimRows,sheets,
+    // Guard against rows being added between the warning dialog and final confirmation.
+    snapshot:JSON.stringify(sheets),
+    totalRows:sheets.reduce((n,row)=>n+row.rows,0)};
 }
-function resetTestDataBeforeLaunch(confirmation){
+function resetTestDataBeforeLaunch(confirmation,expectedSnapshot){
   const admin=requireAdmin_();
   if(String(confirmation||'')!=='確認清空全部測試成績')
     throw new Error('確認文字不正確，未清空任何資料');
@@ -1542,6 +1544,11 @@ function resetTestDataBeforeLaunch(confirmation){
       throw new Error('已有永久領獎紀錄，禁止整批清空。請逐筆核對測試資料，不可破壞防重領紀錄');
     // Verify every target before starting the backup or any deletion.
     const targets=testResetTargets_(ss);
+    const currentSnapshot=JSON.stringify(targets.map(sh=>({
+      name:sh.getName(),rows:Math.max(0,sh.getLastRow()-1)
+    })));
+    if(!expectedSnapshot||currentSnapshot!==String(expectedSnapshot))
+      throw new Error('確認期間回報資料或工作表數量發生變更，已取消清空。請重新開啟選單預覽');
     const expected={};
     Object.keys(TYPES).forEach(type=>reportSheets_(type).forEach(sh=>{
       expected[sh.getSheetId()]=headersFor_(type);
@@ -1615,7 +1622,7 @@ function adminResetTestDataPrompt(){
     '只有確定現有資料全是測試資料才可執行。請完整輸入：確認清空全部測試成績',
     ui.ButtonSet.OK_CANCEL);
   if(answer.getSelectedButton()!==ui.Button.OK)return;
-  const result=resetTestDataBeforeLaunch(answer.getResponseText());
+  const result=resetTestDataBeforeLaunch(answer.getResponseText(),preview.snapshot);
   ui.alert('已清空測試成績',
     '已清空 '+result.removed+' 個工作表資料列（含衍生資料，非回報筆數）。\n'
     +'完整備份：'+result.backupUrl+'\n'
@@ -1818,6 +1825,10 @@ function settlementSheet_(ss,title,headers,rows,checked){
   sh.getRange(1,1,1,width).setValues([headers]);
   if(rows.length)sh.getRange(2,1,rows.length,width).setValues(rows.map(row=>row.map(value=>
     typeof value==='string'?safeRegionCell_(value):value)));
+  // Metric columns must be numbers, even if a previous spreadsheet version
+  // accidentally left a date-time number format (which displays zero as 1899).
+  if(title==='區域成績結算'&&sh.getMaxRows()>1)
+    sh.getRange(2,2,sh.getMaxRows()-1,12).setNumberFormat('0');
   sh.setFrozenRows(1);
   sh.getRange(1,1,1,width).setFontWeight('bold').setBackground('#e6f1e8');
   if(sh.getFilter())sh.getFilter().remove();
