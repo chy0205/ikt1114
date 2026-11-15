@@ -9,8 +9,10 @@
 | 項目 | 連結 |
 | --- | --- |
 | 成績回報網站 | https://chy0205.github.io/ikt1114/ |
+| **互動操作教學（模擬練習）** | https://chy0205.github.io/ikt1114/tutorial.html |
 | Google 成績回報試算表 | https://docs.google.com/spreadsheets/d/1ZglfWKES6sHWcn2vi9JVHXHVJImPqzcWGb_rYHaj0Uk/edit |
 | 網站原始碼 | [index.html](index.html) |
+| 教學頁原始碼 | [tutorial.html](tutorial.html) |
 | Google Apps Script 原始碼 | [Code.gs](Code.gs) |
 | GitHub 修改紀錄 | https://github.com/chy0205/ikt1114/commits/main |
 | 較早期的開發紀錄 | [README 歷史檔](docs/README_HISTORY_2026-11-13.md) |
@@ -39,6 +41,12 @@
 網站「回報前請留意」目前採用以上日期；請回報者確認資料正確，並依類別上傳必要的驗證照片。
 
 **操作區分：** 以上日期沒有寫入自動鎖表、拒收或排程發獎邏輯。管理員若要按照某一截止日製作該梯次正式名單，應先處理與核對符合當次截止規範的資料，再於指定時間執行人工結算及留存快照；**目前按鈕是結算「按下當時」可見的累計，不會自動回溯到公告的截止日**。
+
+### 互動教學入口
+
+正式網站首頁「**📖 操作教學與模擬練習**」連至獨立 [tutorial.html](tutorial.html)，提供步驟提示、常見問題與模擬回報操作。教學頁由使用者上傳的 HTML 整合而來，**操作不連接正式 Apps Script、不寫入成績、不產生真實回報憑證**；從教學頁可返回正式回報網站。
+
+教學模擬畫面中的欄位與選單範例僅供練習，實際必填欄位與驗證仍以正式網站及後端為準。教學內的四梯次日期已配合正式首頁同步更新，第四梯次為 **2027/11/07 截止、2027/11/13 頒獎**。
 
 ## 3. 網站與人員權限
 
