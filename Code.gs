@@ -728,6 +728,7 @@ function onOpen(e){
     .addSeparator()
     .addItem('審核修改／取消申請…','adminReviewPending')
     .addItem('成績、索引與照片健檢…','adminIntegrityCheckPrompt')
+    .addItem('清空測試成績（正式啟用前）…','adminResetTestDataPrompt')
     .addItem('將舊六張原始回報按年度歸檔…','adminMigrateRawByYearPrompt')
     .addItem('重新結算個人與區域成績…','adminRecalculateScoresPrompt')
     .addItem('領獎結算面板（按鈕）…','adminOpenAwardSettlementPanel')
@@ -1499,6 +1500,130 @@ function adminIntegrityCheckPrompt(){
   return result;
 }
 
+
+/**
+ * Pre-launch destructive reset, NOT a test-record detector.
+ * Only use when ALL current report/score rows are acknowledged as test data.
+ * Never resets option settings, passwords, access grants, award rules,
+ * administrator audit logs, or permanent awarded/claimed history.
+ * A full spreadsheet snapshot is copied BEFORE clearing anything.
+ */
+const TEST_RESET_DERIVED_SHEETS_=[
+  '個人成績結算','公堂成績結算','公堂總成績結算','區域成績結算',
+  '領獎累計','領獎結算游標','領獎異動紀錄',
+  '領獎個人班出席索引','領獎整潔回報索引','莊嚴淨土回報核對','領獎區'
+];
+function testResetTargets_(ss){
+  const wanted={};
+  Object.keys(TYPES).forEach(type=>reportSheets_(type).forEach(sh=>{wanted[sh.getSheetId()]=sh;}));
+  ['回報索引','修改申請'].concat(TEST_RESET_DERIVED_SHEETS_).forEach(name=>{
+    const sh=ss.getSheetByName(name);
+    if(sh)wanted[sh.getSheetId()]=sh;
+  });
+  return Object.keys(wanted).map(key=>wanted[key]);
+}
+function previewTestDataReset(){
+  requireAdmin_();
+  const ss=sheet_(),claim=ss.getSheetByName('領獎紀錄');
+  const claimRows=claim?Math.max(0,claim.getLastRow()-1):0;
+  const targets=testResetTargets_(ss);
+  return {ok:true,blocked:claimRows>0,existingClaims:claimRows,
+    sheets:targets.map(sh=>({name:sh.getName(),rows:Math.max(0,sh.getLastRow()-1)})),
+    totalRows:targets.reduce((n,sh)=>n+Math.max(0,sh.getLastRow()-1),0)};
+}
+function resetTestDataBeforeLaunch(confirmation){
+  const admin=requireAdmin_();
+  if(String(confirmation||'')!=='確認清空全部測試成績')
+    throw new Error('確認文字不正確，未清空任何資料');
+  const lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    const ss=sheet_(),claim=ss.getSheetByName('領獎紀錄');
+    if(claim&&claim.getLastRow()>1)
+      throw new Error('已有永久領獎紀錄，禁止整批清空。請逐筆核對測試資料，不可破壞防重領紀錄');
+    // Verify every target before starting the backup or any deletion.
+    const targets=testResetTargets_(ss);
+    const expected={};
+    Object.keys(TYPES).forEach(type=>reportSheets_(type).forEach(sh=>{
+      expected[sh.getSheetId()]=headersFor_(type);
+    }));
+    expected[ss.getSheetByName('回報索引')?.getSheetId()||'-index-']=INDEX_HEADERS;
+    expected[ss.getSheetByName('修改申請')?.getSheetId()||'-change-']=CHANGE_HEADERS;
+    expected[ss.getSheetByName('領獎累計')?.getSheetId()||'-totals-']=AWARD_TOTAL_HEADERS;
+    expected[ss.getSheetByName('領獎結算游標')?.getSheetId()||'-cursor-']=AWARD_CURSOR_HEADERS;
+    expected[ss.getSheetByName('領獎異動紀錄')?.getSheetId()||'-event-']=AWARD_EVENT_HEADERS;
+    expected[ss.getSheetByName('領獎個人班出席索引')?.getSheetId()||'-class-']=AWARD_CLASS_HEADERS;
+    expected[ss.getSheetByName('領獎整潔回報索引')?.getSheetId()||'-clean-']=AWARD_CLEAN_HEADERS;
+    expected[ss.getSheetByName('莊嚴淨土回報核對')?.getSheetId()||'-clean-check-']=AWARD_CLEAN_CHECK_HEADERS;
+    expected[ss.getSheetByName('領獎區')?.getSheetId()||'-award-view-']=AWARD_VIEW_HEADERS;
+    expected[ss.getSheetByName('個人成績結算')?.getSheetId()||'-personal-']=SETTLEMENT_PERSON_HEADERS;
+    expected[ss.getSheetByName('公堂成績結算')?.getSheetId()||'-public-']=SETTLEMENT_PUBLIC_HEADERS;
+    expected[ss.getSheetByName('公堂總成績結算')?.getSheetId()||'-hall-']=SETTLEMENT_HALL_HEADERS;
+    expected[ss.getSheetByName('區域成績結算')?.getSheetId()||'-region-']=SETTLEMENT_REGION_HEADERS;
+    targets.forEach(sh=>{
+      const names=expected[sh.getSheetId()];
+      if(!names)throw new Error('重置清單內存在未辨識工作表：'+sh.getName());
+      if(sh.getLastRow()<1)return;
+      const observed=sh.getRange(1,1,1,names.length).getDisplayValues()[0];
+      if(names.some((name,i)=>name!==observed[i]))
+        throw new Error('「'+sh.getName()+'」表頭與程式不符，已取消清空以保護資料');
+    });
+    const stamp=Utilities.formatDate(new Date(),'Asia/Taipei','yyyyMMdd_HHmmss');
+    // A separate full-file backup safeguards even hidden legacy tabs and photos URLs.
+    const backup=DriveApp.getFileById(ss.getId()).makeCopy('備份_清空測試成績前_'+stamp+'_'+ss.getName());
+    const backupUrl='https://docs.google.com/spreadsheets/d/'+backup.getId()+'/edit';
+    const cleared=[];
+    try{
+      targets.forEach(sh=>{
+        const last=sh.getLastRow();
+        if(last>1){
+          // Preserve headers/column formatting, remove ALL test rows, including
+          // orphaned hash-only cells and leftover incremental cursor data.
+          sh.getRange(2,1,last-1,sh.getMaxColumns()).clearContent();
+        }
+        cleared.push({name:sh.getName(),rows:Math.max(0,last-1)});
+      });
+      // An audit record is intentionally kept, never erased.
+      auditSheet_().appendRow([new Date(),'test_data_reset','','',admin,'',
+        JSON.stringify({backupId:backup.getId(),cleared}), '管理員確認正式啟用前清空全部測試成績；備份先建立，永久領獎紀錄保持不動']);
+      SpreadsheetApp.flush();
+    }catch(err){
+      throw new Error('清空中途失敗。已建立完整備份：'+backupUrl+
+        '。請先由管理員檢查及復原，不要立即重新結算。原始錯誤：'+String(err.message||err));
+    }
+    return {ok:true,backupUrl,cleared,removed:cleared.reduce((n,x)=>n+x.rows,0)};
+  }finally{lock.releaseLock();}
+}
+function adminResetTestDataPrompt(){
+  requireAdmin_();
+  const ui=SpreadsheetApp.getUi(),preview=previewTestDataReset();
+  if(preview.blocked){
+    ui.alert('禁止清空測試成績',
+      '「領獎紀錄」已有 '+preview.existingClaims+' 筆永久領獎紀錄。為保護防重複領獎，不能使用整批重置。',
+      ui.ButtonSet.OK);
+    return;
+  }
+  const lines=preview.sheets.filter(x=>x.rows>0)
+    .map(x=>x.name+'：'+x.rows+' 列').join('\n');
+  if(ui.alert('清空全部測試成績（不可逐筆辨識）',
+    '這不是自動辨識測試資料：會刪除所有現有回報、索引、申請、衍生結算與領獎區資料；若有正式資料也會被清掉。\n'
+    +'將保留單位／密碼設定、管理員授權、獎項規則、永久領獎紀錄及操作紀錄。\n'
+    +'清空前先複製完整試算表備份；照片檔案仍留在 Drive。\n\n'
+    +'目標工作表：'+preview.sheets.length+' 張\n'
+    +(lines||'目前沒有待清除的資料')+'\n\n確定繼續？',
+    ui.ButtonSet.YES_NO)!==ui.Button.YES)return;
+  const answer=ui.prompt('最後確認',
+    '只有確定現有資料全是測試資料才可執行。請完整輸入：確認清空全部測試成績',
+    ui.ButtonSet.OK_CANCEL);
+  if(answer.getSelectedButton()!==ui.Button.OK)return;
+  const result=resetTestDataBeforeLaunch(answer.getResponseText());
+  ui.alert('已清空測試成績',
+    '已清空 '+result.removed+' 個工作表資料列（含衍生資料，非回報筆數）。\n'
+    +'完整備份：'+result.backupUrl+'\n'
+    +'不會刪除 Drive 照片、獎項規則及歷史操作紀錄。\n'
+    +'可從零開始累計；需要時再人工結算領獎。',
+    ui.ButtonSet.OK);
+  return result;
+}
 
 /**
  * 管理員專用成績結算。只在管理員主動執行時，建立／更新兩張衍生表：
