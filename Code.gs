@@ -1511,7 +1511,8 @@ function adminIntegrityCheckPrompt(){
 const TEST_RESET_DERIVED_SHEETS_=[
   '個人成績結算','公堂成績結算','公堂總成績結算','區域成績結算',
   '領獎累計','領獎結算游標','領獎異動紀錄',
-  '領獎個人班出席索引','領獎整潔回報索引','莊嚴淨土回報核對','領獎區'
+  '領獎個人班出席索引','領獎整潔回報索引','莊嚴淨土回報核對','領獎區',
+  '領獎紀錄'
 ];
 function testResetTargets_(ss){
   const wanted={};
@@ -1528,7 +1529,7 @@ function previewTestDataReset(){
   const claimRows=claim?Math.max(0,claim.getLastRow()-1):0;
   const targets=testResetTargets_(ss);
   const sheets=targets.map(sh=>({name:sh.getName(),rows:Math.max(0,sh.getLastRow()-1)}));
-  return {ok:true,blocked:claimRows>0,existingClaims:claimRows,sheets,
+  return {ok:true,existingClaims:claimRows,sheets,
     // Guard against rows being added between the warning dialog and final confirmation.
     snapshot:JSON.stringify(sheets),
     totalRows:sheets.reduce((n,row)=>n+row.rows,0)};
@@ -1539,9 +1540,7 @@ function resetTestDataBeforeLaunch(confirmation,expectedSnapshot){
     throw new Error('確認文字不正確，未清空任何資料');
   const lock=LockService.getScriptLock();lock.waitLock(30000);
   try{
-    const ss=sheet_(),claim=ss.getSheetByName('領獎紀錄');
-    if(claim&&claim.getLastRow()>1)
-      throw new Error('已有永久領獎紀錄，禁止整批清空。請逐筆核對測試資料，不可破壞防重領紀錄');
+    const ss=sheet_();
     // Verify every target before starting the backup or any deletion.
     const targets=testResetTargets_(ss);
     const currentSnapshot=JSON.stringify(targets.map(sh=>({
@@ -1562,6 +1561,7 @@ function resetTestDataBeforeLaunch(confirmation,expectedSnapshot){
     expected[ss.getSheetByName('領獎整潔回報索引')?.getSheetId()||'-clean-']=AWARD_CLEAN_HEADERS;
     expected[ss.getSheetByName('莊嚴淨土回報核對')?.getSheetId()||'-clean-check-']=AWARD_CLEAN_CHECK_HEADERS;
     expected[ss.getSheetByName('領獎區')?.getSheetId()||'-award-view-']=AWARD_VIEW_HEADERS;
+    expected[ss.getSheetByName('領獎紀錄')?.getSheetId()||'-claims-']=AWARD_CLAIM_HEADERS;
     expected[ss.getSheetByName('個人成績結算')?.getSheetId()||'-personal-']=SETTLEMENT_PERSON_HEADERS;
     expected[ss.getSheetByName('公堂成績結算')?.getSheetId()||'-public-']=SETTLEMENT_PUBLIC_HEADERS;
     expected[ss.getSheetByName('公堂總成績結算')?.getSheetId()||'-hall-']=SETTLEMENT_HALL_HEADERS;
@@ -1591,7 +1591,7 @@ function resetTestDataBeforeLaunch(confirmation,expectedSnapshot){
       });
       // An audit record is intentionally kept, never erased.
       auditSheet_().appendRow([new Date(),'test_data_reset','','',admin,'',
-        JSON.stringify({backupId:backup.getId(),cleared}), '管理員確認正式啟用前清空全部測試成績；備份先建立，永久領獎紀錄保持不動']);
+        JSON.stringify({backupId:backup.getId(),cleared}), '正式啟用前整批重置測試回報及測試領獎；完整備份先建立，操作紀錄保留']);
       SpreadsheetApp.flush();
     }catch(err){
       throw new Error('清空中途失敗。已建立完整備份：'+backupUrl+
@@ -1603,23 +1603,19 @@ function resetTestDataBeforeLaunch(confirmation,expectedSnapshot){
 function adminResetTestDataPrompt(){
   requireAdmin_();
   const ui=SpreadsheetApp.getUi(),preview=previewTestDataReset();
-  if(preview.blocked){
-    ui.alert('禁止清空測試成績',
-      '「領獎紀錄」已有 '+preview.existingClaims+' 筆永久領獎紀錄。為保護防重複領獎，不能使用整批重置。',
-      ui.ButtonSet.OK);
-    return;
-  }
+  // This prelaunch-only reset may clear test claims, but must be unmistakably destructive.
   const lines=preview.sheets.filter(x=>x.rows>0)
     .map(x=>x.name+'：'+x.rows+' 列').join('\n');
   if(ui.alert('清空全部測試成績（不可逐筆辨識）',
-    '這不是自動辨識測試資料：會刪除所有現有回報、索引、申請、衍生結算與領獎區資料；若有正式資料也會被清掉。\n'
-    +'將保留單位／密碼設定、管理員授權、獎項規則、永久領獎紀錄及操作紀錄。\n'
+    '這不是自動辨識測試資料！會清除所有原始回報、索引、修改申請、統計、領獎區及領獎紀錄中的資料。\n'
+    +'目前領獎紀錄 '+preview.existingClaims+' 筆；將一併清空並重置防重領紀錄。若有任何正式回報／正式已領獎資料，請取消！\n'
+    +'將保留單位／密碼設定、管理員授權、獎項規則及操作紀錄。\n'
     +'清空前先複製完整試算表備份；照片檔案仍留在 Drive。\n\n'
     +'目標工作表：'+preview.sheets.length+' 張\n'
     +(lines||'目前沒有待清除的資料')+'\n\n確定繼續？',
     ui.ButtonSet.YES_NO)!==ui.Button.YES)return;
   const answer=ui.prompt('最後確認',
-    '只有確定現有資料全是測試資料才可執行。請完整輸入：確認清空全部測試成績',
+    '這會同時清除測試領獎紀錄。只有確定全部是測試資料才可執行。請完整輸入：確認清空全部測試成績',
     ui.ButtonSet.OK_CANCEL);
   if(answer.getSelectedButton()!==ui.Button.OK)return;
   const result=resetTestDataBeforeLaunch(answer.getResponseText(),preview.snapshot);
