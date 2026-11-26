@@ -591,6 +591,10 @@ function reviewChangeRequest(requestId,decision,note){
     const report=findReport_(String(idx.values[1]),String(r[1]));
     if(!report)throw new Error('原始回報不見了');
     const previousSnapshot=JSON.parse(String(r[4]));
+    const photoUrls=JSON.parse(String(r[7]||'[]'));
+    if(!Array.isArray(photoUrls)||photoUrls.length>CONFIG.MAX_FILES||
+      photoUrls.some(url=>typeof url!=='string'||!/^https:\/\/drive\.google\.com\//.test(url)))
+      throw new Error('修改申請的新照片資料不符合格式');
     if(TYPES[String(idx.values[1])].fields.some(key=>
       String(report.values[key]||'')!==String(previousSnapshot[key]||'')))
       throw new Error('原始資料已被其他人修改，請先核對，不能直接審核');
@@ -598,16 +602,23 @@ function reviewChangeRequest(requestId,decision,note){
     const after=JSON.parse(JSON.stringify(report.values));
     const patches=JSON.parse(String(r[5]));
     if(decision==='approve'&&String(r[2])==='modify'){
-      validateChange_(String(idx.values[1]),report.values,patches);
+      if(!Object.keys(patches).length&&!photoUrls.length)throw new Error('修改申請未包含欄位或照片');
+      if(Object.keys(patches).length)validateChange_(String(idx.values[1]),report.values,patches);
       Object.assign(after,patches);
     }
     const stamp=new Date();
     // 先留下不可省略的審核軌跡，再修改原始工作表。
     auditSheet_().appendRow([stamp,decision,String(r[1]),requestId,admin,JSON.stringify(report.values),JSON.stringify(after),safeText_(note||'')]);
     if(decision==='approve'&&String(r[2])==='modify'){
-      const fields=TYPES[String(idx.values[1])].fields;
-      const write=fields.map(k=>(k==='count'||k==='session')?Number(after[k]):safeText_(after[k]));
-      report.sheet.getRange(report.row,4,1,fields.length).setValues([write]);
+      const type=String(idx.values[1]),fields=TYPES[type].fields;
+      if(Object.keys(patches).length){
+        const write=fields.map(k=>(k==='count'||k==='session')?Number(after[k]):safeText_(after[k]));
+        report.sheet.getRange(report.row,4,1,fields.length).setValues([write]);
+      }
+      if(photoUrls.length){
+        // Atomic cell replacement; original Drive files are preserved for audit.
+        report.sheet.getRange(report.row,headersFor_(type).length).setValue(photoUrls.join('\n'));
+      }
     }
     const status=decision==='approve'&&String(r[2])==='cancel'?'已取消':String(idx.values[4]);
     idx.sheet.getRange(idx.row,5).setValue(status);
@@ -615,8 +626,10 @@ function reviewChangeRequest(requestId,decision,note){
     idx.sheet.getRange(idx.row,8).setValue(stamp);
     cs.getRange(row,9).setValue(decision==='approve'?'已核准':'已拒絕');
     cs.getRange(row,11,1,3).setValues([[stamp,admin,safeText_(note||'')]]);
-    if(decision==='approve')awardApprovedChange_(String(r[1]),String(idx.values[1]),
-      String(r[2]),report.values,after);
+    // Photo-only updates do not affect award totals; avoid unnecessary +/- events.
+    if(decision==='approve'&&(String(r[2])==='cancel'||Object.keys(patches).length))
+      awardApprovedChange_(String(r[1]),String(idx.values[1]),
+        String(r[2]),report.values,after);
     return {ok:true,requestId,status:decision==='approve'?'已核准':'已拒絕'};
   }finally{lock.releaseLock();}
 }
@@ -775,6 +788,9 @@ function adminReviewDetails_(requestId){
   if(!idx)throw new Error('找不到原始回報索引');
   const type=String(idx.values[1]);
   const original=JSON.parse(String(vals[4])),patch=JSON.parse(String(vals[5]));
+  const replacementUrls=JSON.parse(String(vals[7]||'[]'));
+  if(!Array.isArray(replacementUrls)||replacementUrls.length>CONFIG.MAX_FILES)
+    throw new Error('申請照片數量不合法');
   if(!original||typeof original!=='object'||!patch||typeof patch!=='object')
     throw new Error('申請資料格式錯誤');
   const current=findReport_(type,String(vals[1]));
@@ -788,6 +804,10 @@ function adminReviewDetails_(requestId){
       if(!TYPES[type].fields.includes(key))throw new Error('申請包含不合法的欄位，不能審核');
       changes.push((labelMap[key]||key)+'：'+String(original[key]||'')+'  →  '+String(patch[key]||''));
     });
+    if(replacementUrls.length){
+      changes.push('更換驗證照片：原有 '+current.photos.length+' 張 → 新上傳 '+replacementUrls.length+' 張');
+      replacementUrls.forEach((url,i)=>changes.push('新照片'+(i+1)+'（供管理員核對）：'+url));
+    }
   }else if(String(vals[2])==='cancel'){
     changes.push('申請取消整筆回報（原始紀錄保留，停止認列）');
   }else throw new Error('未知申請類型');
@@ -1346,11 +1366,22 @@ function regionalChangeRequest_(p){
   const changeType=String(p.changeType||'modify');
   if(!['modify','cancel'].includes(changeType))throw new Error('申請類型無效');
   const patch=changeType==='cancel'?{}:p.changes;
+  const files=p.files===undefined?[]:p.files;
+  if(!Array.isArray(files)||files.length>CONFIG.MAX_FILES)
+    throw new Error('新照片最多5張，請重新選擇');
+  if(files.length&&changeType!=='modify')throw new Error('取消回報不可同時更換照片');
   if(changeType==='modify'){
-    if(!patch||typeof patch!=='object'||Array.isArray(patch)||!Object.keys(patch).length)
-      throw new Error('請至少修改一個欄位');
+    if(!patch||typeof patch!=='object'||Array.isArray(patch)||
+       (!Object.keys(patch).length&&!files.length))
+      throw new Error('請至少修改一個欄位或重新上傳照片');
     if(Object.keys(patch).some(k=>['country','unit','district'].includes(k)))
       throw new Error('區域負責人無法跨區修改國別、單位或區域，請聯絡管理員');
+    files.forEach(file=>{
+      if(!file||!['image/jpeg','image/png','image/webp','image/heic','image/heif'].includes(file.mimeType)||
+        typeof file.data!=='string'||!file.data.length||
+        file.data.length>Math.ceil(CONFIG.MAX_FILE_BYTES*4/3)+100)
+        throw new Error('新照片格式不符或超過單張5MB');
+    });
   }
   const reason=String(p.reason||'').trim();
   if(reason.length<4||reason.length>500)throw new Error('請填寫4至500字的修改或取消原因');
@@ -1368,8 +1399,10 @@ function regionalChangeRequest_(p){
     if(!sameAuthorizedDistrict_(latestAllowed,f.unit,f.district))
       throw new Error('此回報已不在密碼授權範圍');
     if(changeType==='modify'){
-      validateChange_(type,f,patch);
-      if(Object.keys(patch).every(k=>String(patch[k])===String(f[k])))throw new Error('修改內容與原始資料相同');
+      if(Object.keys(patch).length)validateChange_(type,f,patch);
+      if(!files.length&&Object.keys(patch).every(k=>String(patch[k])===String(f[k])))
+        throw new Error('修改內容與原始資料相同');
+      if(files.length&&!TYPES[type].photo)throw new Error('此回報類別不支援照片');
     }
     // 只有真正提交有效申請，才補建缺少的回報索引。
     // 隨機密碼不向區域負責人顯示，也不寫入日誌；以後如需個別查詢，
@@ -1383,10 +1416,19 @@ function regionalChangeRequest_(p){
       idx=findIndex_(id);
       if(!idx)throw new Error('建立回報索引失敗，請管理員核對，勿重複送出');
     }
-    const requestId=Utilities.getUuid();
-    changeSheet_().appendRow([requestId,id,changeType,Number(idx.values[5]),JSON.stringify(f),
-      JSON.stringify(patch),safeText_('[區域負責人'+(changeType==='cancel'?'取消':'修改')+'申請] '+reason),'[]','待審核',new Date(),'','','']);
-    return {ok:true,requestId,status:'待審核'};
+    const requestId=Utilities.getUuid(),created=[];
+    try{
+      // Upload replacement files into Drive only after permission/version checks.
+      // New links remain pending until an admin approves the request.
+      const replacementUrls=files.length?storePhotos_(files,id+'_'+requestId,created):[];
+      changeSheet_().appendRow([requestId,id,changeType,Number(idx.values[5]),JSON.stringify(f),
+        JSON.stringify(patch),safeText_('[區域負責人'+(changeType==='cancel'?'取消':'修改')+'申請] '+reason),
+        JSON.stringify(replacementUrls),'待審核',new Date(),'','','']);
+      return {ok:true,requestId,status:'待審核',pendingPhotos:replacementUrls.length};
+    }catch(err){
+      created.forEach(file=>{try{file.setTrashed(true);}catch(ignore){}});
+      throw err;
+    }
   }finally{lock.releaseLock();}
 }
 
