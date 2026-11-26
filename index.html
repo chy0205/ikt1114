@@ -140,7 +140,7 @@ textarea{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px sol
     </div>
     <div class="lookup-card">
       <h3 style="margin:0 0 8px">申請修改／取消區域回報</h3>
-      <p class="muted-note">選擇授權區域內的一筆回報，可以申請修改或取消。兩種申請都必須由管理員審核，核准取消後才會從成績結算排除；原始回報及照片不會刪除。</p>
+      <p class="muted-note">選擇授權區域內的回報，可申請修改文字、更換驗證照片或取消。所有申請都必須由管理員審核；核准更換照片後才更新照片連結，原始照片檔案保留供核對。</p>
       <div class="field"><label for="regionalReportId">選擇回報紀錄</label><select id="regionalReportId"><option value="">請選擇要申請修改或取消的回報</option></select></div>
       <div class="button-row">
         <button type="button" id="regionalEditOpen" class="button-outline">載入資料，申請修改</button>
@@ -149,6 +149,7 @@ textarea{width:100%;font:inherit;font-size:16px;padding:12px 14px;border:1px sol
       <form id="regionalEditForm" class="hidden" style="margin-top:18px">
         <div id="regionalEditInfo" class="muted-note"></div>
         <div id="regionalEditFields" class="compact-fields"></div>
+        <div class="field" style="margin-top:16px"><label for="regionalEditPhotos">更換驗證照片（選填，可一次選擇1～5張）</label><input type="file" id="regionalEditPhotos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple><p class="hint">如需更換照片，請上傳完整的新照片組；核准後才會取代原有照片連結，舊照片檔案保留。每張不得超過5MB；也可以只換照片、不修改文字。</p><p id="regionalPhotoChosen" class="muted-note"></p></div>
         <div class="field" style="margin-top:16px"><label for="regionalEditReason">修改原因 *</label><input id="regionalEditReason" required minlength="4" maxlength="500" placeholder="請說明原始資料哪裡填錯"></div>
         <div class="button-row"><button type="submit" id="regionalEditSend">送出修改申請</button><button type="button" class="button-outline" id="regionalEditCancel">取消編輯</button></div>
       </form>
@@ -816,6 +817,8 @@ function regionalEditReset_(){
   el('regionalEditForm').classList.add('hidden');
   el('regionalEditFields').replaceChildren();
   el('regionalEditReason').value='';
+  el('regionalEditPhotos').value='';
+  el('regionalPhotoChosen').textContent='';
   el('regionalEditStatus').textContent='';
 }
 function regionalSelectPopulate_(data){
@@ -862,7 +865,7 @@ el('regionalEditOpen').addEventListener('click',async()=>{
     const fields=el('regionalEditFields');fields.replaceChildren();
     for(const key of TYPES[r.type].filter(k=>!['files','country','unit','district'].includes(k)))
       fields.append(regionalEditField_(key,r.fields[key]));
-    el('regionalEditInfo').textContent='正在修改：'+r.id+'｜'+[r.fields.country,r.fields.unit,r.fields.district].join('／')+'（區域欄位不可更動）';
+    el('regionalEditInfo').textContent='正在修改：'+r.id+'｜'+[r.fields.country,r.fields.unit,r.fields.district].join('／')+'（區域欄位不可更動）｜目前照片 '+r.photoCount+' 張';
     el('regionalEditForm').classList.remove('hidden');
   }catch(err){statusMessage('regionalEditStatus',err.message,true);}
   finally{button.disabled=false;}
@@ -953,21 +956,38 @@ el('regionalEditForm').addEventListener('submit',async event=>{
     const next=el('region-edit-'+key).value.trim();
     if(next!==String(r.fields[key]??''))changes[key]=next;
   }
-  if(!Object.keys(changes).length){statusMessage('regionalEditStatus','請至少修改一個欄位。',true);return;}
+  const chosen=Array.from(el('regionalEditPhotos').files||[]);
+  if(!Object.keys(changes).length&&!chosen.length){
+    statusMessage('regionalEditStatus','請至少修改一個欄位或上傳新的驗證照片。',true);return;
+  }
+  if(chosen.length>5||chosen.some(f=>f.size>5*1024*1024||
+       !['image/jpeg','image/png','image/webp','image/heic','image/heif'].includes(f.type))){
+    statusMessage('regionalEditStatus','最多5張照片，每張5MB以內，僅接受JPEG、PNG、WebP、HEIC、HEIF。',true);return;
+  }
   const reason=el('regionalEditReason').value.trim();
   if(reason.length<4){statusMessage('regionalEditStatus','請至少填寫4字的修改原因。',true);return;}
-  if(!confirm('確定送出這筆區域回報的修改申請？送出後須管理員核准才會生效。'))return;
+  if(!confirm('確定送出這筆區域回報的修改申請嗎？'+
+    (chosen.length?'\n新上傳 '+chosen.length+' 張照片，核准後會取代原有照片連結。':'')+
+    '\n送出後仍須管理員核准才會生效。'))return;
   const button=el('regionalEditSend');button.disabled=true;
+  button.textContent=chosen.length?'上傳照片並送出申請中…':'送出申請中…';
   try{
+    const files=[];
+    for(const f of chosen)files.push({mimeType:f.type,data:await base64(f)});
     const result=await apiPost({action:'regionalChangeRequest',regionalPassword:regionalSessionPassword,
-      id:r.id,version:r.version,changes,reason});
+      id:r.id,version:r.version,changes,files,reason});
     regionalEditReset_();
     statusMessage('regionalEditStatus','已送出待審核申請，申請編號：'+result.requestId);
     await regionalRefreshRequests_();
     el('regionalEditOpen').disabled=true;
     el('regionalReportId').querySelectorAll('option').forEach(opt=>{if(opt.value===r.id)opt.disabled=true;});
   }catch(err){statusMessage('regionalEditStatus',err.message,true);}
-  finally{button.disabled=false;}
+  finally{button.disabled=false;button.textContent='送出修改申請';}
+});
+el('regionalEditPhotos').addEventListener('change',()=>{
+  const files=Array.from(el('regionalEditPhotos').files||[]);
+  el('regionalPhotoChosen').textContent=files.length
+    ?'準備上傳 '+files.length+' 張：'+files.map(f=>f.name).join('、'):'';
 });
 
 function regionalTable_(target,headers,rows){
